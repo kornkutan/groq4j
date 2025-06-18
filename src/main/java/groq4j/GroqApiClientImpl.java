@@ -1,83 +1,125 @@
 package groq4j;
 
-import io.reactivex.rxjava3.core.Observable;
-import io.reactivex.rxjava3.core.Single;
+import groq4j.services.*;
+import groq4j.utils.HttpUtils;
+import groq4j.utils.ValidationUtils;
 
-import java.io.StringReader;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import javax.json.Json;
-import javax.json.JsonObject;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-public class GroqApiClientImpl implements IGroqApiClient {
+/**
+ * Main implementation of the Groq API client providing unified access to all Groq services.
+ * This implementation offers both legacy async methods and modern service access.
+ * 
+ * <p>Example usage:
+ * <pre>{@code
+ * // Create client
+ * var client = GroqApiClient.create("your-api-key");
+ * 
+ * // Use modern service APIs
+ * var response = client.chat().simple("llama-3.1-8b-instant", "Hello!");
+ * var models = client.models().listModels();
+ * var transcription = client.audio().transcribe(audioFile, "whisper-large-v3");
+ * }</pre>
+ */
+public class GroqApiClientImpl implements GroqApiClient {
 
     private final String apiKey;
-    private final HttpClient client;
+    private final HttpClient httpClient;
+    private final boolean ownsHttpClient;
+    
+    // Service instances (lazy initialization)
+    private ChatService chatService;
+    private AudioService audioService;
+    private ModelsService modelsService;
+    private BatchService batchService;
+    private FilesService filesService;
 
+    /**
+     * Creates GroqApiClient with the default HttpClient configuration.
+     * Convenient for most use cases.
+     * 
+     * @param apiKey The Groq API key for authentication
+     */
     public GroqApiClientImpl(String apiKey) {
-        ExecutorService executor = Executors.newCachedThreadPool();
+        ValidationUtils.validateApiKey(apiKey);
         this.apiKey = apiKey;
-        this.client = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_2)
-                .executor(executor)
-                .build();
+        this.httpClient = HttpUtils.createHttpClient();
+        this.ownsHttpClient = true;
+    }
+
+    /**
+     * Creates GroqApiClient with custom HttpClient.
+     * Recommended for production use and testing with custom configurations.
+     * 
+     * @param httpClient Custom HttpClient instance
+     * @param apiKey The Groq API key for authentication
+     */
+    public GroqApiClientImpl(HttpClient httpClient, String apiKey) {
+        ValidationUtils.validateApiKey(apiKey);
+        ValidationUtils.requireNonNull(httpClient, "httpClient");
+        this.apiKey = apiKey;
+        this.httpClient = httpClient;
+        this.ownsHttpClient = false;
+    }
+
+    /**
+     * Static factory method for creating GroqApiClient with default settings.
+     * 
+     * @param apiKey The Groq API key for authentication
+     * @return New GroqApiClient instance
+     */
+    public static GroqApiClient create(String apiKey) {
+        return new GroqApiClientImpl(apiKey);
+    }
+
+    /**
+     * Static factory method for creating GroqApiClient with custom HttpClient.
+     * 
+     * @param httpClient Custom HttpClient instance
+     * @param apiKey The Groq API key for authentication
+     * @return New GroqApiClient instance
+     */
+    public static GroqApiClient create(HttpClient httpClient, String apiKey) {
+        return new GroqApiClientImpl(httpClient, apiKey);
     }
 
     @Override
-    public Single<JsonObject> createChatCompletionAsync(JsonObject request) {
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("https://api.groq.com/openai/v1/chat/completions"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(request.toString(), StandardCharsets.UTF_8))
-                .build();
-
-        return Single.<HttpResponse<String>>create(emitter -> {
-                    client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                            .thenAccept(emitter::onSuccess)
-                            .exceptionally(throwable -> {
-                                emitter.onError(throwable);
-                                return null;
-                            });
-                }).map(HttpResponse::body)
-                .map(body -> Json.createReader(new StringReader(body)).readObject());
+    public ChatService chat() {
+        if (chatService == null) {
+            chatService = new ChatServiceImpl(httpClient, apiKey);
+        }
+        return chatService;
     }
 
     @Override
-    public Observable<JsonObject> createChatCompletionStreamAsync(JsonObject request) {
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create("https://api.groq.com/openai/v1/chat/completions"))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(request.toString(), StandardCharsets.UTF_8))
-                .build();
+    public AudioService audio() {
+        if (audioService == null) {
+            audioService = new AudioServiceImpl(httpClient, apiKey);
+        }
+        return audioService;
+    }
 
-        return Observable.<String>create(emitter -> {
-                    client.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString()).thenAccept(httpResponse -> {
-                        try {
-                            String[] lines = httpResponse.body().split("\n");
-                            for (String line : lines) {
-                                if (emitter.isDisposed()) {
-                                    break;
-                                }
-                                emitter.onNext(line);
-                            }
-                            emitter.onComplete();
-                        } catch (Exception e) {
-                            emitter.onError(e);
-                        }
-                    }).exceptionally(throwable -> {
-                        emitter.onError(throwable);
-                        return null;
-                    });
-                }).filter(line -> line.startsWith("data: "))
-                .map(line -> line.substring(6))
-                .filter(jsonData -> !jsonData.equals("[DONE]"))
-                .map(jsonData -> Json.createReader(new StringReader(jsonData)).readObject());
+    @Override
+    public ModelsService models() {
+        if (modelsService == null) {
+            modelsService = new ModelsServiceImpl(httpClient, apiKey);
+        }
+        return modelsService;
+    }
+
+    @Override
+    public BatchService batch() {
+        if (batchService == null) {
+            batchService = new BatchServiceImpl(httpClient, apiKey);
+        }
+        return batchService;
+    }
+
+    @Override
+    public FilesService files() {
+        if (filesService == null) {
+            filesService = new FilesServiceImpl(httpClient, apiKey);
+        }
+        return filesService;
     }
 }
