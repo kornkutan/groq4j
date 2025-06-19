@@ -1,10 +1,10 @@
-# Groq4J - Unofficial Java Client for GroqCloud AI API
+# Groq4j - Java Client for GroqCloud AI API
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://search.maven.org/artifact/io.github.kornkutan/groq4j)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
 
-**Groq4J** is an unofficial Java library that provides a simple and intuitive interface to interact with the [GroqCloud AI API](https://console.groq.com/).
+**Groq4j** is a Java library that provides a simple and intuitive interface to interact with the [GroqCloud AI API](https://console.groq.com/).
 
 > **Note**: This is an unofficial library and is not affiliated with Groq Inc. It is intended primarily for server-side applications.
 
@@ -347,8 +347,8 @@ SOFTWARE.
 ## 👨‍💻 Developer
 
 **Korn Kutan**  
-📧 Email: [korn@kutan.me](mailto:korn@kutan.me)  
-🐙 GitHub: [@kornkutan](https://github.com/kornkutan)
+Email: [korn@kutan.me](mailto:korn@kutan.me)  
+GitHub: [@kornkutan](https://github.com/kornkutan)
 
 ## 🙏 Acknowledgments
 
