@@ -3,6 +3,7 @@
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://search.maven.org/artifact/io.github.kornkutan/groq4j)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
+[![javadoc](https://javadoc.io/badge2/io.github.kornkutan/groq4j/javadoc.svg)](https://javadoc.io/doc/io.github.kornkutan/groq4j)
 
 **Groq4j** is a Java library that provides a simple and intuitive interface to interact with the [GroqCloud AI API](https://console.groq.com/).
 
