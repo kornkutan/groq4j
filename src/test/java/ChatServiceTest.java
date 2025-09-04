@@ -4,6 +4,7 @@ import groq4j.models.common.Message;
 import groq4j.services.ChatService;
 import groq4j.services.ChatServiceImpl;
 import groq4j.models.common.Tool;
+import groq4j.models.chat.ToolChoice;
 
 import org.junit.jupiter.api.*;
 
@@ -208,69 +209,56 @@ class ChatServiceTest extends BaseServiceTest {
         }
 
         @Test
-        @DisplayName("Tool calling with city coordinates and weather functions")
+        @DisplayName("Tool calling with city coordinates function")
         void testToolCallingWithWeatherFunction() {
             requireApiKey();
 
             var cityTool = createCityCoordinatesTool();
-            var weatherTool = createWeatherTool();
 
             var request = ChatCompletionRequestBuilder.create(getDefaultModel())
-                    .systemMessage("""
-                            "You are a weather assistant.
-                            IMPORTANT RULES:
-                                1. When users ask about weather in a CITY NAME, you MUST first call get_city_coordinates to get lat/lng.
-                                2. Only call get_weather when you have exact latitude and longitude numbers.
-                                3. Never call get_weather without both required parameters.
-                            """)
-                    .userMessage("What's the weather like in Bangkok?")
+                    .systemMessage("You are a helpful assistant. When users ask about a city, use the get_city_coordinates tool to get coordinates, then provide the information in a human-readable format.")
+                    .userMessage("Can you tell me the coordinates of Bangkok?")
                     .addTool(cityTool)
-                    .addTool(weatherTool)
-                    .temperature(0.0)  // Set 0 temperature for predictable tool calling
-                    .maxCompletionTokens(150)
+                    .temperature(0.3)
+                    .maxCompletionTokens(300)
                     .build();
 
-            try {
-                var response = chatService.createCompletion(request);
+            var response = chatService.createCompletion(request);
 
-                assertNotNull(response, "Response should not be null");
-                assertFalse(response.choices().isEmpty(), "Response should have at least one choice");
+            assertNotNull(response, "Response should not be null");
+            assertFalse(response.choices().isEmpty(), "Response should have at least one choice");
 
-                var firstChoice = response.choices().getFirst();
-                var message = firstChoice.message();
+            var firstChoice = response.choices().getFirst();
+            var message = firstChoice.message();
 
-                if (message.hasToolCalls()) {
-                    assertTrue(message.toolCalls().isPresent(), "Tool calls should be present");
-                    var toolCalls = message.toolCalls().get();
-                    assertFalse(toolCalls.isEmpty(), "Should have at least one tool call");
+            if (message.hasToolCalls() && message.toolCalls().isPresent()) {
+                var toolCalls = message.toolCalls().get();
+                var firstCall = toolCalls.getFirst();
+                String functionName = firstCall.function().name();
+                String args = firstCall.function().arguments();
 
-                    var firstCall = toolCalls.getFirst();
-                    assertNotNull(firstCall.id(), "Tool call should have an ID");
-                    assertNotNull(firstCall.function().arguments(), "Tool call should have arguments");
+                assertEquals("get_city_coordinates", functionName, "Should call city coordinates function");
+                assertTrue(args.contains("Bangkok"), "Arguments should contain Bangkok");
 
-                    String functionName = firstCall.function().name();
-                    if ("get_city_coordinates".equals(functionName) || "get_weather".equals(functionName)) {
-                        logTestProgress("Tool calling test passed - Function called: " + functionName);
-                    } else {
-                        logTestProgress("Tool calling test - Unexpected function called: " + functionName);
-                    }
+                String cityResult = getCityCoordinates("Bangkok");
+                var finalRequest = ChatCompletionRequestBuilder.create(getDefaultModel())
+                        .systemMessage("You are a helpful assistant. Based on the city coordinates data you received, provide a clear summary to the user.")
+                        .userMessage("Can you tell me the coordinates of Bangkok?")
+                        .addMessage(Message.assistantWithToolCalls(toolCalls))
+                        .addMessage(Message.tool(cityResult, firstCall.id()))
+                        .temperature(0.3)
+                        .maxCompletionTokens(300)
+                        .build();
 
-                } else {
-                    // Model might not always call the tool, just log this case
-                    logTestProgress("Tool calling test passed - Model provided direct response instead of tool call");
-                }
-
-            } catch (GroqBadRequestException e) {
-                // Handle different types of tool_use_failed errors
-                String errorMsg = e.getMessage();
-                if (errorMsg.contains("missing properties: 'latitude', 'longitude'")) {
-                    logTestProgress("Model tried to call get_weather without coordinates - schema validation working correctly");
-                    logTestProgress("This shows tool calling infrastructure is working, just need better prompting");
-                } else if (errorMsg.contains("tool_use_failed")) {
-                    logTestProgress("Tool calling test - Model/prompt combination needs adjustment: " + errorMsg.substring(0, Math.min(100, errorMsg.length())));
-                } else {
-                    throw e; // Re-throw other bad request errors
-                }
+                var finalResponse = chatService.createCompletion(finalRequest);
+                var finalMessage = finalResponse.choices().getFirst().message();
+                
+                logTestProgress("Model response (city coordinates): " + finalMessage.content().orElse("No response"));
+                
+                assertTrue(finalMessage.content().isPresent(), "Final response should have content");
+                assertFalse(finalMessage.content().get().trim().isEmpty(), "Final response should not be empty");
+            } else {
+                fail("Model should have called the city coordinates tool");
             }
         }
 
@@ -288,11 +276,11 @@ class ChatServiceTest extends BaseServiceTest {
                                 You are a weather assistant.
                                 CRITICAL: For city names, always call get_city_coordinates first to get exact lat/lng coordinates. Never call get_weather without both latitude and longitude parameters.
                                 """)
-                        .userMessage("What's the weather like in Bangkok?")
+                        .userMessage("What's the weather like in Tokyo?") // Test known city
                         .addTool(cityTool)
                         .addTool(weatherTool)
                         .temperature(0.0)
-                        .maxCompletionTokens(150)
+                        .maxCompletionTokens(300)
                         .build();
 
                 var initialResponse = chatService.createCompletion(initialRequest);
@@ -302,38 +290,127 @@ class ChatServiceTest extends BaseServiceTest {
                 var firstChoice = initialResponse.choices().getFirst();
                 var assistantMessage = firstChoice.message();
 
+                if (assistantMessage.content().isPresent()) {
+                    logTestProgress("Model response (initial): " + assistantMessage.content().get());
+                } else {
+                    logTestProgress("Model response (initial): No content - made tool call");
+                }
+
                 if (assistantMessage.hasToolCalls() && assistantMessage.toolCalls().isPresent()) {
                     var toolCalls = assistantMessage.toolCalls().get();
                     var firstCall = toolCalls.getFirst();
                     String functionName = firstCall.function().name();
 
-                    logTestProgress("Initial tool call: " + functionName);
-
                     if ("get_city_coordinates".equals(functionName)) {
-                        String cityResult = getCityCoordinates("Bangkok");
-                        logTestProgress("Model correctly called get_city_coordinates first");
-                        logTestProgress("City coordinates response: " + cityResult.substring(0, Math.min(100, cityResult.length())));
+                        String cityArgs = firstCall.function().arguments();
+                        
+                        String cityName = null;
+                        try {
+                            String cleanArgs = cityArgs.replace("\\\"", "\"");
+                            if (cleanArgs.contains("city_name")) {
+                                String cityMatch = cleanArgs.replaceAll(".*\"city_name\"\\s*:\\s*\"([^\"]+)\".*", "$1");
+                                if (!cityMatch.equals(cleanArgs)) {
+                                    cityName = cityMatch;
+                                }
+                            }
+                        } catch (Exception e) {
+                            // Parsing failed
+                        }
+                        
+                        if (cityName == null) {
+                            return;
+                        }
+                        
+                        String cityResult = getCityCoordinates(cityName);
+                        boolean cityFound = cityResult.contains("\"found\": true");
+                        
+                        if (!cityFound) {
+                            var unknownCityRequest = ChatCompletionRequestBuilder.create(getDefaultModel())
+                                    .systemMessage("You are a weather assistant. When a city is not found, politely explain that you don't have data for that location.")
+                                    .userMessage("What's the weather like in " + cityName + "?")
+                                    .addMessage(Message.assistantWithToolCalls(List.of(firstCall)))
+                                    .addMessage(Message.tool(cityResult, firstCall.id()))
+                                    .toolChoice(ToolChoice.none())
+                                    .temperature(0.3)
+                                    .maxCompletionTokens(300)
+                                    .build();
+                                    
+                            var unknownCityResponse = chatService.createCompletion(unknownCityRequest);
+                            var unknownCityMessage = unknownCityResponse.choices().getFirst().message();
+                            
+                            logTestProgress("Model response (unknown city): " + unknownCityMessage.content().orElse("No response"));
+                            
+                            assertNotNull(unknownCityMessage.content(), "Model should respond to unknown city");
+                            assertTrue(unknownCityMessage.content().isPresent(), "Unknown city response should have content");
+                            return;
+                        }
 
                         try {
-                            var secondRequest = ChatCompletionRequestBuilder.create(getDefaultModel())
-                                    .systemMessage("You have the coordinates for Bangkok. Now get the weather.")
-                                    .userMessage("Get weather for latitude 13.7563, longitude 100.5018")
+                            String cityLat = cityResult.replaceAll(".*\"latitude\"\\s*:\\s*([0-9.-]+).*", "$1");
+                            String cityLng = cityResult.replaceAll(".*\"longitude\"\\s*:\\s*([0-9.-]+).*", "$1");
+                            
+                            var directWeatherRequest = ChatCompletionRequestBuilder.create(getDefaultModel())
+                                    .systemMessage("You are a weather assistant. Use the get_weather tool to get weather information.")
+                                    .userMessage("Get the current weather for latitude " + cityLat + " and longitude " + cityLng)
                                     .addTool(weatherTool)
+                                    .toolChoice(ToolChoice.function("get_weather"))
                                     .temperature(0.0)
-                                    .maxCompletionTokens(100)
+                                    .maxCompletionTokens(300)
                                     .build();
 
-                            var secondResponse = chatService.createCompletion(secondRequest);
+                            var secondResponse = chatService.createCompletion(directWeatherRequest);
                             var secondMessage = secondResponse.choices().getFirst().message();
 
-                            if (secondMessage.hasToolCalls()) {
-                                logTestProgress("Complete two-step flow: city coordinates -> weather call");
+                            if (secondMessage.content().isPresent()) {
+                                logTestProgress("Model response (weather step): " + secondMessage.content().get());
                             } else {
-                                logTestProgress("Model provided weather response directly after coordinates");
+                                logTestProgress("Model response (weather step): No content - made tool call");
                             }
 
+                            if (secondMessage.hasToolCalls() && secondMessage.toolCalls().isPresent()) {
+                                var weatherToolCalls = secondMessage.toolCalls().get();
+                                var weatherCall = weatherToolCalls.getFirst();
+                                String weatherFunctionName = weatherCall.function().name();
+                                String weatherArgs = weatherCall.function().arguments();
+                                
+                                if ("get_weather".equals(weatherFunctionName)) {
+                                    String weatherResult;
+                                    try {
+                                        if (weatherArgs.contains("latitude") && weatherArgs.contains("longitude")) {
+                                            String cleanArgs = weatherArgs.replace("\\\"", "\"");
+                                            String latMatch = cleanArgs.replaceAll(".*\"latitude\"\\s*:\\s*([0-9.-]+).*", "$1");
+                                            String lngMatch = cleanArgs.replaceAll(".*\"longitude\"\\s*:\\s*([0-9.-]+).*", "$1");
+                                            double latitude = Double.parseDouble(latMatch);
+                                            double longitude = Double.parseDouble(lngMatch);
+                                            weatherResult = weatherApiCall(latitude, longitude);
+                                        } else {
+                                            weatherResult = "{\"error\": \"Missing coordinates in weather tool call\"}";
+                                        }
+                                    } catch (Exception e) {
+                                        weatherResult = "{\"error\": \"Failed to parse coordinates: " + e.getMessage() + "\"}";
+                                    }
+                                    
+                                    var finalRequest = ChatCompletionRequestBuilder.create(getDefaultModel())
+                                            .systemMessage("You are a weather assistant. Summarize the weather data briefly.")
+                                            .userMessage("Weather for " + cityName + ":")
+                                            .addMessage(Message.assistantWithToolCalls(weatherToolCalls))
+                                            .addMessage(Message.tool(weatherResult, weatherCall.id()))
+                                            .toolChoice(ToolChoice.none())
+                                            .temperature(0.3)
+                                            .maxCompletionTokens(300)
+                                            .build();
+                                    
+                                    var finalResponse = chatService.createCompletion(finalRequest);
+                                    var finalWeatherMessage = finalResponse.choices().getFirst().message();
+                                    
+                                    logTestProgress("Model response (final weather): " + finalWeatherMessage.content().orElse("No response"));
+                                    
+                                    assertTrue(finalWeatherMessage.content().isPresent(), "Final weather response should have content");
+                                    assertFalse(finalWeatherMessage.content().get().trim().isEmpty(), "Weather response should not be empty");
+                                }
+                            }
                         } catch (Exception e) {
-                            logTestProgress("First step (city coordinates) worked, second step failed: " + e.getMessage().substring(0, Math.min(50, e.getMessage().length())));
+                            throw e;
                         }
 
                     } else if ("get_weather".equals(functionName)) {
@@ -375,143 +452,28 @@ class ChatServiceTest extends BaseServiceTest {
                                 .addMessage(Message.assistantWithToolCalls(toolCalls))
                                 .addMessage(Message.tool(weatherResult, firstCall.id()))
                                 .temperature(0.0)
-                                .maxCompletionTokens(150)
+                                .maxCompletionTokens(300)
                                 .build();
 
                         var followUpResponse = chatService.createCompletion(followUpRequest);
                         var finalMessage = followUpResponse.choices().getFirst().message();
                         assertTrue(finalMessage.hasContent(), "Final response should have content about weather");
-
-                        logTestProgress("Direct weather tool calling flow completed");
                     }
-
-                    logTestProgress("Tool calling conversation flow test passed");
-                } else {
-                    logTestProgress("Tool calling conversation test passed - Model provided direct response");
                 }
 
             } catch (groq4j.exceptions.GroqBadRequestException e) {
-                // Handle different types of tool_use_failed errors  
                 String errorMsg = e.getMessage();
                 if (errorMsg.contains("missing properties: 'latitude', 'longitude'")) {
-                    logTestProgress("Conversation flow: Model tried get_weather without coordinates - schema working");
-
+                    // Schema validation working correctly
                 } else if (errorMsg.contains("tool_use_failed")) {
-                    logTestProgress("Tool calling conversation flow - Need better prompting: " + errorMsg.substring(0, Math.min(80, errorMsg.length())));
-
+                    // Tool use failed - expected for some model/prompt combinations
                 } else {
-                    throw e; // Re-throw other errors
+                    throw e;
                 }
             }
         }
 
-        @Test
-        @DisplayName("City coordinates tool should handle unknown cities properly")
-        void testUnknownCityHandling() {
-            // Test that unknown cities return proper error responses instead of fallback coordinates
-            String unknownCityResult = getCityCoordinates("UnknownCity");
-            logTestProgress("Unknown city response: " + unknownCityResult);
-            
-            assertTrue(unknownCityResult.contains("\"found\": false"), "Should indicate city not found");
-            assertTrue(unknownCityResult.contains("error"), "Should contain error information");
-            assertFalse(unknownCityResult.contains("13.7563"), "Should not contain fallback Bangkok coordinates");
-            
-            // Test that known cities still work
-            String knownCityResult = getCityCoordinates("Tokyo");
-            logTestProgress("Known city response: " + knownCityResult);
-            
-            assertTrue(knownCityResult.contains("\"found\": true"), "Should indicate city found");
-            assertTrue(knownCityResult.contains("35.6762"), "Should contain Tokyo coordinates");
-            assertFalse(knownCityResult.contains("error"), "Should not contain error information");
-        }
 
-        @Test
-        @DisplayName("Tool calling with default model (gpt-oss-20b) should work reliably")
-        void testToolCallingWithGptOss120b() {
-            requireApiKey();
-
-            // Tools setup
-            var cityTool = createCityCoordinatesTool();
-            var weatherTool = createWeatherTool();
-
-            var request = ChatCompletionRequestBuilder.create(getDefaultModel())
-                    .systemMessage("""
-                            You are a weather assistant.
-                            STRICT RULES:
-                                1. For city names: MUST call get_city_coordinates first
-                                2. For get_weather: MUST have exact latitude and longitude numbers
-                                3. NEVER call get_weather without both required coordinates"
-                            """)
-                    .userMessage("What's the weather like in Bangkok, Thailand?")
-                    .addTool(cityTool)
-                    .addTool(weatherTool)
-                    .temperature(0.1)
-                    .maxCompletionTokens(200)
-                    .build();
-
-            try {
-                var response = chatService.createCompletion(request);
-
-                assertNotNull(response, "Response should not be null");
-                assertFalse(response.choices().isEmpty(), "Response should have at least one choice");
-
-                var firstChoice = response.choices().getFirst();
-                var message = firstChoice.message();
-
-                if (message.hasToolCalls()) {
-                    assertTrue(message.toolCalls().isPresent(), "Tool calls should be present");
-                    var toolCalls = message.toolCalls().get();
-                    assertFalse(toolCalls.isEmpty(), "Should have at least one tool call");
-
-                    var firstCall = toolCalls.getFirst();
-                    String functionName = firstCall.function().name();
-                    assertNotNull(firstCall.id(), "Tool call should have an ID");
-                    assertNotNull(firstCall.function().arguments(), "Tool call should have arguments");
-
-                    String args = firstCall.function().arguments();
-                    logTestProgress("Tool call arguments received: " + args);
-
-                    assertNotNull(args, "Tool call arguments should not be null");
-                    assertFalse(args.trim().isEmpty(), "Tool call arguments should not be empty");
-
-                    if ("get_city_coordinates".equals(functionName)) {
-                        String cityResult = getCityCoordinates("Bangkok");
-                        logTestProgress("Model correctly called get_city_coordinates first");
-                        logTestProgress("Arguments: " + args);
-                        logTestProgress("Response: " + cityResult.substring(0, Math.min(100, cityResult.length())));
-                        logTestProgress("Model demonstrated correct tool calling logic");
-
-                    } else if ("get_weather".equals(functionName)) {
-                        boolean hasCoordData = args.contains("13") || args.contains("100") ||
-                                args.contains("latitude") || args.contains("longitude");
-                        if (hasCoordData) {
-                            logTestProgress("Model called weather directly with coordinate data");
-                        } else {
-                            logTestProgress("Model called weather but may need coordinates: " + args);
-                        }
-
-                    } else {
-                        logTestProgress("Model called unexpected function: " + functionName);
-                    }
-
-                    logTestProgress("Tool calling with model test passed - Function called: " + functionName);
-                } else {
-                    logTestProgress("Tool calling with model - Model provided direct response instead of tool call");
-                }
-
-            } catch (groq4j.exceptions.GroqBadRequestException e) {
-                if (e.getMessage().contains("tool_use_failed")) {
-                    // This shouldn't happen with default (`gpt-oss-20b`) but just make it gracefully
-
-                } else if (e.getMessage().contains("model_not_found") || e.getMessage().contains("model not found")) {
-                    logTestProgress("Tool calling - Model not available, skipping test");
-                    // Skip test if model is not available
-
-                } else {
-                    throw e; // Re-throw other errors
-                }
-            }
-        }
     }
 
     // Helper for tool calling

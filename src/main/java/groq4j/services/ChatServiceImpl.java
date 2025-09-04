@@ -77,7 +77,7 @@ public class ChatServiceImpl implements ChatService {
         
         return HttpUtils.executeRequest(httpClient, httpRequest)
             .thenApply(this::parseChatCompletionResponse)
-            .join(); // Block for synchronous response
+            .join();
     }
     
     @Override
@@ -109,13 +109,11 @@ public class ChatServiceImpl implements ChatService {
     private String buildChatCompletionRequestJson(ChatCompletionRequest request) {
         var requestMap = new HashMap<String, Object>();
         
-        // Required fields
         requestMap.put("model", request.model());
         requestMap.put("messages", request.messages().stream()
             .map(Message::toMap)
             .toList());
         
-        // Optional fields
         request.frequencyPenalty().ifPresent(fp -> requestMap.put("frequency_penalty", fp));
         request.logitBias().ifPresent(lb -> requestMap.put("logit_bias", lb));
         request.logprobs().ifPresent(lp -> requestMap.put("logprobs", lp));
@@ -131,7 +129,7 @@ public class ChatServiceImpl implements ChatService {
         request.serviceTier().ifPresent(st -> requestMap.put("service_tier", st.getValue()));
         request.stop().ifPresent(stop -> requestMap.put("stop", stop));
         request.temperature().ifPresent(t -> requestMap.put("temperature", t));
-        request.toolChoice().ifPresent(tc -> requestMap.put("tool_choice", toolChoiceToMap(tc)));
+        request.toolChoice().ifPresent(tc -> requestMap.put("tool_choice", toolChoiceToJson(tc)));
         request.tools().ifPresent(tools -> requestMap.put("tools", tools.stream()
             .map(tool -> tool.toMap())
             .toList()));
@@ -154,9 +152,9 @@ public class ChatServiceImpl implements ChatService {
         return map;
     }
     
-    private Map<String, Object> toolChoiceToMap(groq4j.models.chat.ToolChoice toolChoice) {
+    private Object toolChoiceToJson(groq4j.models.chat.ToolChoice toolChoice) {
         if (toolChoice.isNone() || toolChoice.isAuto() || toolChoice.isRequired()) {
-            return Map.of("type", toolChoice.type().getValue());
+            return toolChoice.type().getValue();
         } else if (toolChoice.isSpecificFunction()) {
             return Map.of(
                 "type", "function",
@@ -173,7 +171,6 @@ public class ChatServiceImpl implements ChatService {
             long created = ResponseParser.getRequiredLong(responseJson, "created");
             String model = ResponseParser.getRequiredString(responseJson, "model");
             
-            // Parse choices array manually since getRequiredArray doesn't exist
             var choices = parseChoicesArray(responseJson);
 
             var usage = parseUsage(responseJson);
@@ -193,22 +190,17 @@ public class ChatServiceImpl implements ChatService {
     
     private groq4j.models.chat.Choice parseChoice(String choiceJson) {
         try {
-            // Parse index
             int index = extractIntValue(choiceJson, "index");
             
-            // Parse finish reason
             String finishReason = extractSimpleStringValue(choiceJson, "finish_reason");
             if (finishReason == null) {
                 return null;
             }
             
-            // Parse message object
             var message = parseMessageFromChoice(choiceJson);
             if (message == null) {
                 return null;
             }
-            
-            // LogProbs are optional for now
             var logprobs = java.util.Optional.<groq4j.models.chat.LogProbs>empty();
             
             return new groq4j.models.chat.Choice(index, message, logprobs, finishReason);
@@ -224,7 +216,6 @@ public class ChatServiceImpl implements ChatService {
     }
     
     private groq4j.models.chat.LogProbs parseLogProbs(String logprobsJson) {
-        // TODO: Implement LogProbs parsing when needed
         return null;
     }
     
@@ -232,14 +223,12 @@ public class ChatServiceImpl implements ChatService {
         var choices = new java.util.ArrayList<groq4j.models.chat.Choice>();
         
         try {
-            // Find the choices array
             String choicesMarker = "\"choices\":[";
             int choicesStart = responseJson.indexOf(choicesMarker);
             if (choicesStart == -1) {
                 return choices;
             }
             
-            // Extract all choice objects from the array
             int arrayStart = choicesStart + choicesMarker.length();
             int arrayEnd = findMatchingBracket(responseJson, arrayStart - 1, '[', ']');
             
@@ -248,8 +237,6 @@ public class ChatServiceImpl implements ChatService {
             }
             
             String choicesArray = responseJson.substring(arrayStart, arrayEnd);
-            
-            // Parse each choice object
             int pos = 0;
             while (pos < choicesArray.length()) {
                 int choiceStart = choicesArray.indexOf("{", pos);
@@ -268,7 +255,6 @@ public class ChatServiceImpl implements ChatService {
             }
             
         } catch (Exception e) {
-            // Log error but don't fail completely
             System.err.println("Warning: Failed to parse choices array: " + e.getMessage());
         }
         
@@ -307,7 +293,6 @@ public class ChatServiceImpl implements ChatService {
         String pattern = "\"" + key + "\":\"";
         int start = json.indexOf(pattern);
         if (start == -1) {
-            // Try null value pattern
             String nullPattern = "\"" + key + "\":null";
             if (json.indexOf(nullPattern) != -1) {
                 return null;
@@ -320,6 +305,45 @@ public class ChatServiceImpl implements ChatService {
         if (valueEnd == -1) return null;
         
         return json.substring(valueStart, valueEnd);
+    }
+
+    /**
+     * Extracts a JSON string value that may contain escaped quotes and complex JSON structures.
+     * This is specifically designed for tool call arguments which are JSON objects serialized as strings.
+     */
+    private String extractJsonStringValue(String json, String key) {
+        String pattern = "\"" + key + "\":\"";
+        int start = json.indexOf(pattern);
+        if (start == -1) {
+            String nullPattern = "\"" + key + "\":null";
+            if (json.indexOf(nullPattern) != -1) {
+                return null;
+            }
+            return null;
+        }
+        
+        int valueStart = start + pattern.length();
+        
+        StringBuilder result = new StringBuilder();
+        boolean escaped = false;
+        
+        for (int i = valueStart; i < json.length(); i++) {
+            char c = json.charAt(i);
+            
+            if (escaped) {
+                result.append(c);
+                escaped = false;
+            } else if (c == '\\') {
+                result.append(c);
+                escaped = true;
+            } else if (c == '"') {
+                return result.toString();
+            } else {
+                result.append(c);
+            }
+        }
+        
+        return null;
     }
     
     private int extractIntValue(String json, String key) {
@@ -341,14 +365,13 @@ public class ChatServiceImpl implements ChatService {
     }
     
     private Message parseMessageFromChoice(String choiceJson) {
-        // Find the message object
         String messageMarker = "\"message\":{";
         int messageStart = choiceJson.indexOf(messageMarker);
         if (messageStart == -1) {
             return null;
         }
         
-        int messageObjStart = messageStart + messageMarker.length() - 1; // Include the opening brace
+        int messageObjStart = messageStart + messageMarker.length() - 1;
         int messageObjEnd = findMatchingBracket(choiceJson, messageObjStart, '{', '}');
         if (messageObjEnd == -1) {
             return null;
@@ -356,18 +379,13 @@ public class ChatServiceImpl implements ChatService {
         
         String messageJson = choiceJson.substring(messageObjStart, messageObjEnd + 1);
         
-        // Parse message fields
         String role = extractSimpleStringValue(messageJson, "role");
         String content = extractSimpleStringValue(messageJson, "content");
-        
-        // Check for tool calls
         java.util.List<groq4j.models.common.ToolCall> toolCalls = parseToolCalls(messageJson);
         
         if (toolCalls.isEmpty()) {
-            // Regular message with content
             return Message.assistant(content != null ? content : "");
         } else {
-            // Message with tool calls
             if (content != null && !content.isEmpty()) {
                 return Message.assistant(content, toolCalls);
             } else {
@@ -394,7 +412,6 @@ public class ChatServiceImpl implements ChatService {
             
             String toolCallsArray = messageJson.substring(arrayStart, arrayEnd);
             
-            // Parse each tool call object
             int pos = 0;
             while (pos < toolCallsArray.length()) {
                 int callStart = toolCallsArray.indexOf("{", pos);
@@ -428,7 +445,6 @@ public class ChatServiceImpl implements ChatService {
                 return null;
             }
             
-            // Parse function call
             String functionMarker = "\"function\":{";
             int funcStart = callJson.indexOf(functionMarker);
             if (funcStart == -1) {
@@ -443,7 +459,7 @@ public class ChatServiceImpl implements ChatService {
             
             String functionJson = callJson.substring(funcObjStart, funcObjEnd + 1);
             String name = extractSimpleStringValue(functionJson, "name");
-            String arguments = extractSimpleStringValue(functionJson, "arguments");
+            String arguments = extractJsonStringValue(functionJson, "arguments");
             
             if (name == null || arguments == null) {
                 return null;
