@@ -1,5 +1,4 @@
 import groq4j.builders.ChatCompletionRequestBuilder;
-import groq4j.exceptions.GroqBadRequestException;
 import groq4j.models.common.Message;
 import groq4j.services.ChatService;
 import groq4j.services.ChatServiceImpl;
@@ -210,7 +209,7 @@ class ChatServiceTest extends BaseServiceTest {
 
         @Test
         @DisplayName("Tool calling with city coordinates function")
-        void testToolCallingWithWeatherFunction() {
+        void testToolCallingWithCityCoordinatesFunction() {
             requireApiKey();
 
             var cityTool = createCityCoordinatesTool();
