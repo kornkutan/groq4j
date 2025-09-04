@@ -135,6 +135,7 @@ var request = ChatCompletionRequestBuilder.create("llama-3.1-8b-instant")
 #### Tool Calling (v1.0.1+)
 ```java
 import groq4j.models.common.Tool;
+import groq4j.models.common.Message;
 
 // Define a weather tool
 var weatherTool = Tool.function(
@@ -162,14 +163,23 @@ var message = response.choices().getFirst().message();
 
 if (message.hasToolCalls()) {
     var toolCalls = message.toolCalls().get();
-    for (var toolCall : toolCalls) {
-        String functionName = toolCall.function().name();
-        String arguments = toolCall.function().arguments();
-        
-        // Execute your tool logic here
-        System.out.println("Tool called: " + functionName);
-        System.out.println("Arguments: " + arguments);
-    }
+    var toolCall = toolCalls.getFirst();
+    
+    // Execute your tool logic here
+    String weatherResult = getWeatherData(13.7563, 100.5018);
+    
+    // Continue conversation with tool result
+    var followUpRequest = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+        .systemMessage("You are a helpful weather assistant.")
+        .userMessage("What's the weather like in Bangkok?")
+        .addMessage(Message.assistantWithToolCalls(toolCalls))
+        .addMessage(Message.tool(weatherResult, toolCall.id()))
+        .temperature(0.3)
+        .build();
+    
+    var finalResponse = chatService.createCompletion(followUpRequest);
+    System.out.println("Weather: " + finalResponse.choices().getFirst().message().content().orElse(""));
+    // Output: "The current weather in Bangkok is 28°C with partly cloudy skies..."
 }
 ```
 
