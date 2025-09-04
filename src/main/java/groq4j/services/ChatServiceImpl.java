@@ -192,13 +192,31 @@ public class ChatServiceImpl implements ChatService {
     }
     
     private groq4j.models.chat.Choice parseChoice(String choiceJson) {
-        int index = ResponseParser.getRequiredInt(choiceJson, "index");
-        var message = parseMessage(ResponseParser.getRequiredString(choiceJson, "message"));
-        var logprobs = ResponseParser.getOptionalString(choiceJson, "logprobs")
-            .map(this::parseLogProbs);
-        String finishReason = ResponseParser.getRequiredString(choiceJson, "finish_reason");
-        
-        return new groq4j.models.chat.Choice(index, message, logprobs, finishReason);
+        try {
+            // Parse index
+            int index = extractIntValue(choiceJson, "index");
+            
+            // Parse finish reason
+            String finishReason = extractSimpleStringValue(choiceJson, "finish_reason");
+            if (finishReason == null) {
+                return null;
+            }
+            
+            // Parse message object
+            var message = parseMessageFromChoice(choiceJson);
+            if (message == null) {
+                return null;
+            }
+            
+            // LogProbs are optional for now
+            var logprobs = java.util.Optional.<groq4j.models.chat.LogProbs>empty();
+            
+            return new groq4j.models.chat.Choice(index, message, logprobs, finishReason);
+            
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to parse choice: " + e.getMessage());
+            return null;
+        }
     }
     
     private Message parseMessage(String messageJson) {
@@ -213,8 +231,6 @@ public class ChatServiceImpl implements ChatService {
     private java.util.List<groq4j.models.chat.Choice> parseChoicesArray(String responseJson) {
         var choices = new java.util.ArrayList<groq4j.models.chat.Choice>();
         
-        // FXIME: For now, implement a simple manual parser for the first choice
-        // This is a temporary solution until we have proper JSON parsing
         try {
             // Find the choices array
             String choicesMarker = "\"choices\":[";
@@ -223,50 +239,222 @@ public class ChatServiceImpl implements ChatService {
                 return choices;
             }
             
-            // Extract the first choice object
-            int firstChoiceStart = responseJson.indexOf("{", choicesStart + choicesMarker.length());
-            if (firstChoiceStart == -1) {
+            // Extract all choice objects from the array
+            int arrayStart = choicesStart + choicesMarker.length();
+            int arrayEnd = findMatchingBracket(responseJson, arrayStart - 1, '[', ']');
+            
+            if (arrayEnd == -1) {
                 return choices;
             }
             
-            // Find the end of the first choice (look for the closing brace)
-            int braceCount = 1;
-            int firstChoiceEnd = firstChoiceStart + 1;
-            while (firstChoiceEnd < responseJson.length() && braceCount > 0) {
-                char c = responseJson.charAt(firstChoiceEnd);
-                if (c == '{') braceCount++;
-                else if (c == '}') braceCount--;
-                firstChoiceEnd++;
-            }
+            String choicesArray = responseJson.substring(arrayStart, arrayEnd);
             
-            String firstChoiceJson = responseJson.substring(firstChoiceStart, firstChoiceEnd);
-            // Parse the basic fields from the choice
-            int index = 0; // Default to 0
-            String content = extractSimpleStringValue(firstChoiceJson, "content");
-            String finishReason = extractSimpleStringValue(firstChoiceJson, "finish_reason");
-            
-            if (content != null && finishReason != null) {
-                var message = Message.assistant(content);
-                choices.add(new groq4j.models.chat.Choice(index, message, java.util.Optional.empty(), finishReason));
+            // Parse each choice object
+            int pos = 0;
+            while (pos < choicesArray.length()) {
+                int choiceStart = choicesArray.indexOf("{", pos);
+                if (choiceStart == -1) break;
+                
+                int choiceEnd = findMatchingBracket(choicesArray, choiceStart, '{', '}');
+                if (choiceEnd == -1) break;
+                
+                String choiceJson = choicesArray.substring(choiceStart, choiceEnd + 1);
+                groq4j.models.chat.Choice choice = parseChoice(choiceJson);
+                if (choice != null) {
+                    choices.add(choice);
+                }
+                
+                pos = choiceEnd + 1;
             }
             
         } catch (Exception e) {
             // Log error but don't fail completely
+            System.err.println("Warning: Failed to parse choices array: " + e.getMessage());
         }
         
         return choices;
     }
     
+    private int findMatchingBracket(String json, int startPos, char openBracket, char closeBracket) {
+        int count = 1;
+        int pos = startPos + 1;
+        boolean inString = false;
+        boolean escaped = false;
+        
+        while (pos < json.length() && count > 0) {
+            char c = json.charAt(pos);
+            
+            if (escaped) {
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"' && !escaped) {
+                inString = !inString;
+            } else if (!inString) {
+                if (c == openBracket) {
+                    count++;
+                } else if (c == closeBracket) {
+                    count--;
+                }
+            }
+            pos++;
+        }
+        
+        return count == 0 ? pos - 1 : -1;
+    }
+    
     private String extractSimpleStringValue(String json, String key) {
         String pattern = "\"" + key + "\":\"";
         int start = json.indexOf(pattern);
-        if (start == -1) return null;
+        if (start == -1) {
+            // Try null value pattern
+            String nullPattern = "\"" + key + "\":null";
+            if (json.indexOf(nullPattern) != -1) {
+                return null;
+            }
+            return null;
+        }
         
         int valueStart = start + pattern.length();
         int valueEnd = json.indexOf("\"", valueStart);
         if (valueEnd == -1) return null;
         
         return json.substring(valueStart, valueEnd);
+    }
+    
+    private int extractIntValue(String json, String key) {
+        String pattern = "\"" + key + "\":";
+        int start = json.indexOf(pattern);
+        if (start == -1) return 0;
+        
+        int valueStart = start + pattern.length();
+        int valueEnd = valueStart;
+        while (valueEnd < json.length() && Character.isDigit(json.charAt(valueEnd))) {
+            valueEnd++;
+        }
+        
+        try {
+            return Integer.parseInt(json.substring(valueStart, valueEnd));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+    
+    private Message parseMessageFromChoice(String choiceJson) {
+        // Find the message object
+        String messageMarker = "\"message\":{";
+        int messageStart = choiceJson.indexOf(messageMarker);
+        if (messageStart == -1) {
+            return null;
+        }
+        
+        int messageObjStart = messageStart + messageMarker.length() - 1; // Include the opening brace
+        int messageObjEnd = findMatchingBracket(choiceJson, messageObjStart, '{', '}');
+        if (messageObjEnd == -1) {
+            return null;
+        }
+        
+        String messageJson = choiceJson.substring(messageObjStart, messageObjEnd + 1);
+        
+        // Parse message fields
+        String role = extractSimpleStringValue(messageJson, "role");
+        String content = extractSimpleStringValue(messageJson, "content");
+        
+        // Check for tool calls
+        java.util.List<groq4j.models.common.ToolCall> toolCalls = parseToolCalls(messageJson);
+        
+        if (toolCalls.isEmpty()) {
+            // Regular message with content
+            return Message.assistant(content != null ? content : "");
+        } else {
+            // Message with tool calls
+            if (content != null && !content.isEmpty()) {
+                return Message.assistant(content, toolCalls);
+            } else {
+                return Message.assistantWithToolCalls(toolCalls);
+            }
+        }
+    }
+    
+    private java.util.List<groq4j.models.common.ToolCall> parseToolCalls(String messageJson) {
+        var toolCalls = new java.util.ArrayList<groq4j.models.common.ToolCall>();
+        
+        try {
+            String toolCallsMarker = "\"tool_calls\":[";
+            int toolCallsStart = messageJson.indexOf(toolCallsMarker);
+            if (toolCallsStart == -1) {
+                return toolCalls;
+            }
+            
+            int arrayStart = toolCallsStart + toolCallsMarker.length();
+            int arrayEnd = findMatchingBracket(messageJson, arrayStart - 1, '[', ']');
+            if (arrayEnd == -1) {
+                return toolCalls;
+            }
+            
+            String toolCallsArray = messageJson.substring(arrayStart, arrayEnd);
+            
+            // Parse each tool call object
+            int pos = 0;
+            while (pos < toolCallsArray.length()) {
+                int callStart = toolCallsArray.indexOf("{", pos);
+                if (callStart == -1) break;
+                
+                int callEnd = findMatchingBracket(toolCallsArray, callStart, '{', '}');
+                if (callEnd == -1) break;
+                
+                String callJson = toolCallsArray.substring(callStart, callEnd + 1);
+                groq4j.models.common.ToolCall toolCall = parseToolCall(callJson);
+                if (toolCall != null) {
+                    toolCalls.add(toolCall);
+                }
+                
+                pos = callEnd + 1;
+            }
+            
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to parse tool calls: " + e.getMessage());
+        }
+        
+        return toolCalls;
+    }
+    
+    private groq4j.models.common.ToolCall parseToolCall(String callJson) {
+        try {
+            String id = extractSimpleStringValue(callJson, "id");
+            String type = extractSimpleStringValue(callJson, "type");
+            
+            if (id == null || type == null) {
+                return null;
+            }
+            
+            // Parse function call
+            String functionMarker = "\"function\":{";
+            int funcStart = callJson.indexOf(functionMarker);
+            if (funcStart == -1) {
+                return null;
+            }
+            
+            int funcObjStart = funcStart + functionMarker.length() - 1;
+            int funcObjEnd = findMatchingBracket(callJson, funcObjStart, '{', '}');
+            if (funcObjEnd == -1) {
+                return null;
+            }
+            
+            String functionJson = callJson.substring(funcObjStart, funcObjEnd + 1);
+            String name = extractSimpleStringValue(functionJson, "name");
+            String arguments = extractSimpleStringValue(functionJson, "arguments");
+            
+            if (name == null || arguments == null) {
+                return null;
+            }
+            
+            return groq4j.models.common.ToolCall.function(id, name, arguments);
+            
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to parse tool call: " + e.getMessage());
+            return null;
+        }
     }
     
     private groq4j.models.common.Usage parseUsage(String responseJson) {

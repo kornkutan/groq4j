@@ -28,6 +28,7 @@ replay_pid*
 target
 
 CLAUDE.md
-API.md
-PLAN.md
-PROGRESS.md
+MAVEN_CENTRAL_SETUP.md
+publish-to-maven-central.sh
+verify-setup.sh
+public-key.asc

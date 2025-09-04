@@ -12,6 +12,7 @@
 ## ⚡ Features
 
 - **Chat Completions** - Advanced conversational AI with multiple models
+- **Tool Calling** - Function calling and tool integration with proper error handling 🆕
 - **Audio Processing** - Transcription, translation, and text-to-speech synthesis  
 - **Model Management** - List, retrieve, and validate available AI models
 - **File Operations** - Upload, manage, and process files (Premium feature)
@@ -27,17 +28,19 @@
 - **Server-Side Focus**: Designed primarily for backend/server applications
 - **Premium Features**: Some features require paid GroqCloud plans
 
+> **Note**: Fixed tool calling support is available and will be released as **v1.0.1** to Maven Central soon.
+
 ## 🚀 Supported APIs
 
-| Service | Description | Status |
-|---------|-------------|--------|
-| **Chat Completions** | Multi-turn conversations, system prompts | ✅ Full Support |
-| **Audio Transcription** | Speech-to-text conversion | ✅ Full Support |
-| **Audio Translation** | Audio translation to English | ✅ Full Support |
-| **Text-to-Speech** | Voice synthesis from text | ✅ Full Support |
-| **Models** | List and retrieve model information | ✅ Full Support |
-| **Files** | File upload and management | ⚠️ Premium Only |
-| **Batch** | Bulk processing operations | ⚠️ Premium Only |
+| Service                 | Description                                            | Status                   |
+|-------------------------|--------------------------------------------------------|--------------------------|
+| **Chat Completions**    | Multi-turn conversations, system prompts, tool calling | ✅ Full Support           |
+| **Audio Transcription** | Speech-to-text conversion                              | ✅ Full Support           |
+| **Audio Translation**   | Audio translation to English                           | ✅ Full Support           |
+| **Text-to-Speech**      | Voice synthesis from text                              | ✅ Full Support           |
+| **Models**              | List and retrieve model information                    | ✅ Full Support           |
+| **Files**               | File upload and management                             | ⚠️ Premium Only          |
+| **Batch**               | Bulk processing operations                             | ⚠️ Premium Only          |
 
 ## 📦 Installation
 
@@ -55,6 +58,9 @@
 
 ```gradle
 implementation 'io.github.kornkutan:groq4j:1.0.0'
+
+// For tool calling support (coming soon):
+// implementation 'io.github.kornkutan:groq4j:1.0.1'
 ```
 
 ### Requirements
@@ -73,6 +79,9 @@ var chatService = ChatServiceImpl.create("your-api-key-here");
 // Simple chat completion
 var response = chatService.simple("llama-3.1-8b-instant", "Hello, how are you?");
 System.out.println(response.choices().getFirst().message().content().orElse(""));
+
+// For tool calling, use the recommended model (v1.0.1+)
+var toolResponse = chatService.simple("openai/gpt-oss-20b", "What's the weather like?");
 ```
 
 ## 📚 Usage Examples
@@ -121,6 +130,47 @@ var request = ChatCompletionRequestBuilder.create("llama-3.1-8b-instant")
     .messages(messages)
     .temperature(0.8)
     .build();
+```
+
+#### Tool Calling (v1.0.1+)
+```java
+import groq4j.models.common.Tool;
+
+// Define a weather tool
+var weatherTool = Tool.function(
+    "get_weather",
+    "Get current weather information for a specific location",
+    Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "latitude", Map.of("type", "number", "description", "Latitude coordinate"),
+            "longitude", Map.of("type", "number", "description", "Longitude coordinate")
+        ),
+        "required", List.of("latitude", "longitude")
+    )
+);
+
+var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+    .systemMessage("You are a helpful weather assistant.")
+    .userMessage("What's the weather like in Bangkok?")
+    .addTool(weatherTool)
+    .temperature(0.1)
+    .build();
+
+var response = chatService.createCompletion(request);
+var message = response.choices().getFirst().message();
+
+if (message.hasToolCalls()) {
+    var toolCalls = message.toolCalls().get();
+    for (var toolCall : toolCalls) {
+        String functionName = toolCall.function().name();
+        String arguments = toolCall.function().arguments();
+        
+        // Execute your tool logic here
+        System.out.println("Tool called: " + functionName);
+        System.out.println("Arguments: " + arguments);
+    }
+}
 ```
 
 ### 🎵 Audio Processing
@@ -287,6 +337,12 @@ mvn test -Dtest=AudioServiceTest
 # test.batch.enabled=false
 # test.files.enabled=false
 ```
+
+**Tool Calling Test Features (v1.0.1+):**
+- Multi-step conversation flows (city coordinates → weather data)
+- Error handling for unknown cities and invalid coordinates
+- Real API integration with Open-Meteo weather service
+- Supports `openai/gpt-oss-20b` model for reliable tool calling
 
 ## 🤝 Contributing
 
