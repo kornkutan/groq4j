@@ -352,13 +352,20 @@ Point the library at a proxy or a mock server with `-Dgroq4j.baseUrl=http://loca
 
 ## Testing
 
-Offline tests run with no API key and cover the JSON parser, SSE reader, request building, response parsing and HTTP error mapping:
+Offline tests need no API key. They run every service method against an in-process fake Groq server on 127.0.0.1 and cover request building, response parsing, streaming, every documented error status and transport failure:
 
 ```bash
 mvn test
 ```
 
-The live API tests are tagged `integration` and are skipped by default. To run them, set `GROQ_API_KEY` and enable the profile:
+Coverage report:
+
+```bash
+mvn test jacoco:report
+open target/site/jacoco/index.html
+```
+
+Live API tests are tagged `integration` and skipped by default. To run them, set `GROQ_API_KEY` and enable the profile:
 
 ```bash
 mvn test -Pintegration
@@ -377,7 +384,7 @@ mvn package
 Issues and pull requests go to [github.com/kornkutan/groq4j](https://github.com/kornkutan/groq4j).
 
 - Keep the library free of runtime dependencies.
-- Add an offline test for anything that parses or serializes.
+- Add an offline test for anything that parses or serializes. `FakeServerTestBase` gives each test its own fake server.
 - Match the existing builder pattern for new request types.
 
 ## License

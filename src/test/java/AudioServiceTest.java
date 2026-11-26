@@ -251,6 +251,7 @@ class AudioServiceTest extends BaseServiceTest {
     }
         
     @Nested
+    @Tag("integration")
     @DisplayName("Audio Response Format Tests")
     class AudioResponseFormatTests {
         

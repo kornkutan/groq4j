@@ -12,6 +12,8 @@ import groq4j.utils.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +34,7 @@ public class BatchServiceImpl implements BatchService {
     
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
     
     /**
      * Constructor for dependency injection scenarios.
@@ -40,12 +43,21 @@ public class BatchServiceImpl implements BatchService {
      * @param apiKey Groq API key for authentication
      * @throws IllegalArgumentException if any parameter is null or apiKey is empty
      */
+    public BatchServiceImpl(String apiKey) {
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
+    }
+
     public BatchServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public BatchServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         ValidationUtils.validateApiKey(apiKey);
         
         this.httpClient = httpClient;
         this.apiKey = apiKey;
+        this.baseUrl = baseUrl;
     }
     
     /**
@@ -77,207 +89,108 @@ public class BatchServiceImpl implements BatchService {
     public static BatchService create(HttpClient httpClient, String apiKey) {
         return new BatchServiceImpl(httpClient, apiKey);
     }
+
+    public static BatchService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new BatchServiceImpl(httpClient, apiKey, baseUrl);
+    }
     
     @Override
     public BatchResponse createBatch(BatchRequest request) {
         ValidationUtils.requireNonNull(request, "request");
-        
-        try {
-            String requestBody = serializeBatchRequest(request);
-            
-            HttpRequest httpRequest = HttpUtils.createJsonRequest(
-                UrlUtils.buildBatchesUrl(),
-                apiKey,
-                HttpMethod.POST,
-                requestBody
-            );
-            
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseBatchResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to create batch", e);
-        }
+
+        HttpRequest httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildBatchesUrl(baseUrl), apiKey, HttpMethod.POST, serializeBatchRequest(request));
+
+        return parseBatchResponse(HttpUtils.sendAndReadBody(httpClient, httpRequest));
     }
-    
+
     @Override
     public BatchResponse retrieveBatch(String batchId) {
         ValidationUtils.requireNonEmpty(batchId, "batchId");
-        
-        try {
-            HttpRequest httpRequest = HttpUtils.createJsonRequest(
-                UrlUtils.buildBatchUrl(batchId),
-                apiKey,
-                HttpMethod.GET,
-                ""
-            );
-            
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseBatchResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to retrieve batch: " + batchId, e);
-        }
+
+        HttpRequest httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildBatchUrl(baseUrl, batchId), apiKey, HttpMethod.GET, "");
+
+        return parseBatchResponse(HttpUtils.sendAndReadBody(httpClient, httpRequest));
     }
-    
+
     @Override
     public BatchListResponse listBatches() {
-        try {
-            HttpRequest httpRequest = HttpUtils.createJsonRequest(
-                UrlUtils.buildBatchesUrl(),
-                apiKey,
-                HttpMethod.GET,
-                ""
-            );
-            
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseBatchListResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to list batches", e);
-        }
+        HttpRequest httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildBatchesUrl(baseUrl), apiKey, HttpMethod.GET, "");
+
+        return parseBatchListResponse(HttpUtils.sendAndReadBody(httpClient, httpRequest));
     }
-    
+
     @Override
     public BatchResponse cancelBatch(String batchId) {
         ValidationUtils.requireNonEmpty(batchId, "batchId");
-        
-        try {
-            // Build the HTTP request (POST to /batches/{id}/cancel)
-            HttpRequest httpRequest = HttpUtils.createJsonRequest(
-                UrlUtils.buildBatchCancelUrl(batchId),
-                apiKey,
-                HttpMethod.POST,
-                "{}" // Empty JSON body for cancel request
-            );
-            
-            HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseBatchResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to cancel batch: " + batchId, e);
-        }
+
+        HttpRequest httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildBatchCancelUrl(baseUrl, batchId), apiKey, HttpMethod.POST, "{}");
+
+        return parseBatchResponse(HttpUtils.sendAndReadBody(httpClient, httpRequest));
     }
-    
-    /**
-     * Serializes a BatchRequest to JSON.
-     * 
-     * @param request the batch request to serialize
-     * @return JSON string representation
-     */
+
     private String serializeBatchRequest(BatchRequest request) {
-        try {
-            Map<String, Object> requestMap = Map.of(
-                "input_file_id", request.inputFileId(),
-                "endpoint", request.endpoint(),
-                "completion_window", request.completionWindow(),
-                "metadata", request.hasMetadata() ? request.getMetadataOrEmpty() : Map.of()
-            );
-            
-            return JsonUtils.toJsonString(requestMap);
-            
-        } catch (Exception e) {
-            throw new GroqSerializationException("Failed to serialize batch request", e);
-        }
+        Map<String, Object> requestMap = new LinkedHashMap<>();
+        requestMap.put("input_file_id", request.inputFileId());
+        requestMap.put("endpoint", request.endpoint());
+        requestMap.put("completion_window", request.completionWindow());
+        requestMap.put("metadata", request.hasMetadata() ? request.getMetadataOrEmpty() : Map.of());
+
+        return JsonUtils.toJsonString(requestMap);
     }
-    
-    /**
-     * Parses a batch list response from JSON.
-     * 
-     * @param json JSON response from the API
-     * @return parsed BatchListResponse
-     * @throws GroqSerializationException if JSON parsing fails
-     */
+
     private BatchListResponse parseBatchListResponse(String json) {
-        try {
-            String object = JsonUtils.extractStringValue(json, "object");
-            String dataArrayJson = JsonUtils.extractArrayValue(json, "data");
-            boolean hasMore = JsonUtils.extractBooleanValuePrimitive(json, "has_more");
-            
-            List<BatchResponse> batches = JsonUtils.parseJsonArray(dataArrayJson, this::parseBatchFromJson);
-            
-            return new BatchListResponse(object, batches, hasMore);
-            
-        } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse batch list response", e);
+        Map<String, Object> root = JsonUtils.parseObject(json);
+        List<BatchResponse> batches = new ArrayList<>();
+        for (Object raw : JsonUtils.asList(root.get("data"))) {
+            batches.add(parseBatchFromJson(JsonUtils.toJsonString(JsonUtils.asMap(raw))));
         }
+
+        String object = JsonUtils.stringValue(root.get("object"));
+        Double hasMore = JsonUtils.doubleValue(root.get("has_more"));
+        return new BatchListResponse(object, batches, hasMore != null && hasMore != 0);
     }
-    
-    /**
-     * Parses a single batch response from JSON.
-     * 
-     * @param json JSON response from the API
-     * @return parsed BatchResponse
-     * @throws GroqSerializationException if JSON parsing fails
-     */
+
     private BatchResponse parseBatchResponse(String json) {
-        try {
-            return parseBatchFromJson(json);
-        } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse batch response", e);
-        }
+        return parseBatchFromJson(json);
     }
-    
-    /**
-     * Parses a single batch from JSON object.
-     * 
-     * @param json JSON object representing a batch
-     * @return parsed BatchResponse
-     */
+
     private BatchResponse parseBatchFromJson(String json) {
         String id = JsonUtils.extractStringValue(json, "id");
-        String object = JsonUtils.extractStringValue(json, "object");
-        String endpoint = JsonUtils.extractStringValue(json, "endpoint");
-        String inputFileId = JsonUtils.extractStringValue(json, "input_file_id");
-        String completionWindow = JsonUtils.extractStringValue(json, "completion_window");
-        
-        // Parse status
-        String statusValue = JsonUtils.extractStringValue(json, "status");
-        BatchStatus status = BatchStatus.fromValue(statusValue);
-        
-        // Parse timestamps
-        long createdAt = JsonUtils.extractLongValuePrimitive(json, "created_at");
-        long expiresAt = JsonUtils.extractLongValuePrimitive(json, "expires_at");
-        
-        // Parse optional timestamps
-        Optional<Long> inProgressAt = JsonUtils.extractOptionalLongValue(json, "in_progress_at");
-        Optional<Long> finalizingAt = JsonUtils.extractOptionalLongValue(json, "finalizing_at");
-        Optional<Long> completedAt = JsonUtils.extractOptionalLongValue(json, "completed_at");
-        Optional<Long> failedAt = JsonUtils.extractOptionalLongValue(json, "failed_at");
-        Optional<Long> expiredAt = JsonUtils.extractOptionalLongValue(json, "expired_at");
-        Optional<Long> cancellingAt = JsonUtils.extractOptionalLongValue(json, "cancelling_at");
-        Optional<Long> cancelledAt = JsonUtils.extractOptionalLongValue(json, "cancelled_at");
-        
-        // Parse optional file IDs
-        Optional<String> outputFileId = JsonUtils.extractOptionalStringValue(json, "output_file_id");
-        Optional<String> errorFileId = JsonUtils.extractOptionalStringValue(json, "error_file_id");
-        
-        // Parse optional fields
-        Optional<Object> errors = JsonUtils.extractOptionalValue(json, "errors");
-        Optional<Map<String, String>> metadata = JsonUtils.extractOptionalMapValue(json, "metadata");
-        
-        // Parse request counts
-        RequestCounts requestCounts = parseRequestCounts(json);
+        if (id == null) {
+            throw new GroqSerializationException("Invalid batch response: missing 'id' field");
+        }
+
+        Map<String, Object> root = JsonUtils.parseObject(json);
+
+        String object = JsonUtils.stringValue(root.get("object"));
+        String endpoint = JsonUtils.stringValue(root.get("endpoint"));
+        String inputFileId = JsonUtils.stringValue(root.get("input_file_id"));
+        String completionWindow = JsonUtils.stringValue(root.get("completion_window"));
+
+        BatchStatus status = BatchStatus.fromValue(JsonUtils.stringValue(root.get("status")));
+
+        long createdAt = longValue(root.get("created_at"));
+        long expiresAt = longValue(root.get("expires_at"));
+
+        Optional<Long> inProgressAt = optionalLong(root.get("in_progress_at"));
+        Optional<Long> finalizingAt = optionalLong(root.get("finalizing_at"));
+        Optional<Long> completedAt = optionalLong(root.get("completed_at"));
+        Optional<Long> failedAt = optionalLong(root.get("failed_at"));
+        Optional<Long> expiredAt = optionalLong(root.get("expired_at"));
+        Optional<Long> cancellingAt = optionalLong(root.get("cancelling_at"));
+        Optional<Long> cancelledAt = optionalLong(root.get("cancelled_at"));
+
+        Optional<String> outputFileId = Optional.ofNullable(JsonUtils.stringValue(root.get("output_file_id")));
+        Optional<String> errorFileId = Optional.ofNullable(JsonUtils.stringValue(root.get("error_file_id")));
+
+        Optional<Object> errors = Optional.ofNullable(root.get("errors"));
+        Optional<Map<String, String>> metadata = optionalMetadata(root.get("metadata"));
+
+        RequestCounts requestCounts = parseRequestCounts(root.get("request_counts"));
         
         return new BatchResponse(
             id,
@@ -309,17 +222,39 @@ public class BatchServiceImpl implements BatchService {
      * @param json the batch JSON
      * @return RequestCounts object
      */
-    private RequestCounts parseRequestCounts(String json) {
-        String requestCountsJson = JsonUtils.extractObjectValue(json, "request_counts");
-        if (requestCountsJson == null) {
-            // Return default empty counts if not present
+    private RequestCounts parseRequestCounts(Object rawCounts) {
+        if (!(rawCounts instanceof Map<?, ?>)) {
             return new RequestCounts(0, 0, 0);
         }
-        
-        int total = JsonUtils.extractIntValuePrimitive(requestCountsJson, "total");
-        int completed = JsonUtils.extractIntValuePrimitive(requestCountsJson, "completed");
-        int failed = JsonUtils.extractIntValuePrimitive(requestCountsJson, "failed");
-        
-        return new RequestCounts(total, completed, failed);
+        Map<String, Object> counts = JsonUtils.asMap(rawCounts);
+        return new RequestCounts(
+            intValue(counts.get("total")),
+            intValue(counts.get("completed")),
+            intValue(counts.get("failed")));
     }
+
+    private static Optional<Long> optionalLong(Object value) {
+        return Optional.ofNullable(JsonUtils.doubleValue(value)).map(Double::longValue);
+    }
+
+    private static Optional<Map<String, String>> optionalMetadata(Object value) {
+        if (!(value instanceof Map<?, ?>)) {
+            return Optional.empty();
+        }
+        Map<String, String> metadata = new LinkedHashMap<>();
+        JsonUtils.asMap(value).forEach((key, entry) ->
+            metadata.put(key, entry == null ? null : String.valueOf(entry)));
+        return Optional.of(metadata);
+    }
+
+    private static int intValue(Object value) {
+        Double number = JsonUtils.doubleValue(value);
+        return number == null ? 0 : number.intValue();
+    }
+
+    private static long longValue(Object value) {
+        Double number = JsonUtils.doubleValue(value);
+        return number == null ? 0L : number.longValue();
+    }
+
 }

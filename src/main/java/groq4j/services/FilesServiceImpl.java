@@ -3,6 +3,7 @@ package groq4j.services;
 import groq4j.builders.FileUploadRequestBuilder.FileUploadRequest;
 import groq4j.enums.FilePurpose;
 import groq4j.enums.HttpMethod;
+import groq4j.exceptions.GroqSerializationException;
 import groq4j.models.files.FileDeleteResponse;
 import groq4j.models.files.FileListResponse;
 import groq4j.models.files.FileObject;
@@ -16,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -42,6 +44,7 @@ import java.util.concurrent.CompletableFuture;
 public class FilesServiceImpl implements FilesService {
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
     private final boolean ownsHttpClient;
 
     /**
@@ -49,11 +52,7 @@ public class FilesServiceImpl implements FilesService {
      * Uses sensible defaults but less flexible than providing your own HttpClient.
      */
     public FilesServiceImpl(String apiKey) {
-        this.httpClient = HttpUtils.createHttpClient();
-        this.apiKey = apiKey;
-        this.ownsHttpClient = true;
-        
-        ValidationUtils.validateApiKey(apiKey);
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     /**
@@ -61,11 +60,18 @@ public class FilesServiceImpl implements FilesService {
      * Allows full control over HTTP configuration and enables testing with mocked clients.
      */
     public FilesServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public FilesServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
+        ValidationUtils.requireNonNull(httpClient, "httpClient");
+        ValidationUtils.requireNonNull(baseUrl, "baseUrl");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
         this.ownsHttpClient = false;
 
         ValidationUtils.validateApiKey(apiKey);
+        this.baseUrl = baseUrl;
     }
 
     /**
@@ -74,6 +80,10 @@ public class FilesServiceImpl implements FilesService {
      */
     public static FilesService create(HttpClient httpClient, String apiKey) {
         return new FilesServiceImpl(httpClient, apiKey);
+    }
+
+    public static FilesService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new FilesServiceImpl(httpClient, apiKey, baseUrl);
     }
 
     /**
@@ -91,7 +101,7 @@ public class FilesServiceImpl implements FilesService {
         ValidationUtils.requireNonNull(purpose, "purpose");
         ValidationUtils.validateFileSize(fileData);
 
-        String url = UrlUtils.buildFilesUrl(Constants.BASE_URL);
+        String url = UrlUtils.buildFilesUrl(baseUrl);
         HttpRequest request = HttpUtils.createFileUploadRequest(
             url, 
             apiKey, 
@@ -119,7 +129,7 @@ public class FilesServiceImpl implements FilesService {
 
     @Override
     public FileListResponse listFiles() {
-        String url = UrlUtils.buildFilesUrl(Constants.BASE_URL);
+        String url = UrlUtils.buildFilesUrl(baseUrl);
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
@@ -132,7 +142,7 @@ public class FilesServiceImpl implements FilesService {
     public FileObject retrieveFile(String fileId) {
         ValidationUtils.requireNonEmpty(fileId, "fileId");
 
-        String url = UrlUtils.buildFileUrl(Constants.BASE_URL, fileId);
+        String url = UrlUtils.buildFileUrl(baseUrl, fileId);
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
@@ -145,7 +155,7 @@ public class FilesServiceImpl implements FilesService {
     public FileDeleteResponse deleteFile(String fileId) {
         ValidationUtils.requireNonEmpty(fileId, "fileId");
 
-        String url = UrlUtils.buildFileUrl(Constants.BASE_URL, fileId);
+        String url = UrlUtils.buildFileUrl(baseUrl, fileId);
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.DELETE, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
@@ -158,7 +168,7 @@ public class FilesServiceImpl implements FilesService {
     public byte[] downloadFileContent(String fileId) {
         ValidationUtils.requireNonEmpty(fileId, "fileId");
 
-        String url = UrlUtils.buildFileContentUrl(Constants.BASE_URL, fileId);
+        String url = UrlUtils.buildFileContentUrl(baseUrl, fileId);
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<byte[]> future = HttpUtils.executeRequestForBytes(httpClient, request);
@@ -168,142 +178,57 @@ public class FilesServiceImpl implements FilesService {
     // Private parsing methods
 
     private FileObject parseFileObject(String responseJson) {
-        String id = JsonUtils.extractStringValue(responseJson, "id");
-        String object = JsonUtils.extractStringValue(responseJson, "object");
-        Long bytes = JsonUtils.extractLongValue(responseJson, "bytes");
-        Long createdAt = JsonUtils.extractLongValue(responseJson, "created_at");
-        String filename = JsonUtils.extractStringValue(responseJson, "filename");
-        String purposeValue = JsonUtils.extractStringValue(responseJson, "purpose");
-
-        // Handle missing or null values gracefully
+        Map<String, Object> root = JsonUtils.parseObject(responseJson);
+        String id = JsonUtils.stringValue(root.get("id"));
         if (id == null) {
-            throw new RuntimeException("Invalid file response: missing 'id' field");
+            throw new GroqSerializationException("Invalid file response: missing 'id' field");
         }
-        if (bytes == null) {
-            bytes = 0L;
-        }
-        if (createdAt == null) {
-            createdAt = System.currentTimeMillis() / 1000;
-        }
-        if (object == null) {
-            object = "file";
-        }
-        if (filename == null) {
-            filename = "unknown";
-        }
+
+        String object = JsonUtils.stringValue(root.get("object"));
+        Double bytes = JsonUtils.doubleValue(root.get("bytes"));
+        Double createdAt = JsonUtils.doubleValue(root.get("created_at"));
+        String filename = JsonUtils.stringValue(root.get("filename"));
 
         FilePurpose purpose;
         try {
-            purpose = purposeValue != null ? FilePurpose.fromValue(purposeValue) : FilePurpose.BATCH;
+            purpose = FilePurpose.fromValue(JsonUtils.stringValue(root.get("purpose")));
         } catch (IllegalArgumentException e) {
-            purpose = FilePurpose.BATCH; // Default fallback
+            purpose = FilePurpose.BATCH;
         }
 
-        return FileObject.of(id, object, bytes, createdAt, filename, purpose);
+        return FileObject.of(id,
+            object == null ? "file" : object,
+            bytes == null ? 0L : bytes.longValue(),
+            createdAt == null ? System.currentTimeMillis() / 1000 : createdAt.longValue(),
+            filename == null ? "unknown" : filename,
+            purpose);
     }
 
     private FileListResponse parseFileListResponse(String responseJson) {
-        String object = JsonUtils.extractStringValue(responseJson, "object");
-        if (object == null) {
-            object = "list";
-        }
+        Map<String, Object> root = JsonUtils.parseObject(responseJson);
+        String object = JsonUtils.stringValue(root.get("object"));
 
         List<FileObject> files = new ArrayList<>();
-        
-        // Try to extract the data array as a string
-        String dataArrayJson = JsonUtils.extractArrayValue(responseJson, "data");
-        
-        if (dataArrayJson != null && !dataArrayJson.equals("[]")) {
-            // Remove outer brackets
-            String arrayContent = dataArrayJson.substring(1, dataArrayJson.length() - 1).trim();
-            
-            if (!arrayContent.isEmpty()) {
-                // Simple parsing - split by objects
-                String[] fileJsons = splitJsonObjects(arrayContent);
-                
-                for (String fileJson : fileJsons) {
-                    try {
-                        // Wrap in braces if not already wrapped
-                        String completeJson = fileJson.trim();
-                        if (!completeJson.startsWith("{")) {
-                            completeJson = "{" + completeJson;
-                        }
-                        if (!completeJson.endsWith("}")) {
-                            completeJson = completeJson + "}";
-                        }
-                        
-                        FileObject file = parseFileObject(completeJson);
-                        files.add(file);
-                    } catch (Exception e) {
-                        // Skip malformed file entries but continue processing
-                        System.err.println("Warning: Failed to parse file entry: " + e.getMessage());
-                    }
-                }
-            }
+        for (Object raw : JsonUtils.asList(root.get("data"))) {
+            files.add(parseFileObject(JsonUtils.toJsonString(JsonUtils.asMap(raw))));
         }
 
-        return FileListResponse.of(object, files);
-    }
-    
-    private String[] splitJsonObjects(String arrayContent) {
-        if (arrayContent.trim().isEmpty()) {
-            return new String[0];
-        }
-        
-        List<String> objects = new ArrayList<>();
-        int start = 0;
-        int braceCount = 0;
-        boolean inString = false;
-        
-        for (int i = 0; i < arrayContent.length(); i++) {
-            char c = arrayContent.charAt(i);
-            
-            if (!inString) {
-                if (c == '"') {
-                    inString = true;
-                } else if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        // End of an object
-                        objects.add(arrayContent.substring(start, i + 1).trim());
-                        start = i + 1;
-                        // Skip comma if present
-                        while (start < arrayContent.length() && 
-                               (arrayContent.charAt(start) == ',' || Character.isWhitespace(arrayContent.charAt(start)))) {
-                            start++;
-                        }
-                        i = start - 1; // Will be incremented by the loop
-                    }
-                }
-            } else {
-                if (c == '"' && (i == 0 || arrayContent.charAt(i - 1) != '\\')) {
-                    inString = false;
-                }
-            }
-        }
-        
-        return objects.toArray(new String[0]);
+        return FileListResponse.of(object == null ? "list" : object, files);
     }
 
     private FileDeleteResponse parseFileDeleteResponse(String responseJson) {
-        String id = JsonUtils.extractStringValue(responseJson, "id");
-        String object = JsonUtils.extractStringValue(responseJson, "object");
-        Boolean deleted = JsonUtils.extractBooleanValue(responseJson, "deleted");
-
-        // Handle missing values
+        Map<String, Object> root = JsonUtils.parseObject(responseJson);
+        String id = JsonUtils.stringValue(root.get("id"));
         if (id == null) {
-            throw new RuntimeException("Invalid delete response: missing 'id' field");
-        }
-        if (object == null) {
-            object = "file";
-        }
-        if (deleted == null) {
-            deleted = false;
+            throw new GroqSerializationException("Invalid delete response: missing 'id' field");
         }
 
-        return FileDeleteResponse.of(id, object, deleted);
+        String object = JsonUtils.stringValue(root.get("object"));
+        Object deleted = root.get("deleted");
+
+        return FileDeleteResponse.of(id,
+            object == null ? "file" : object,
+            deleted instanceof Boolean flag && flag);
     }
 
     /**

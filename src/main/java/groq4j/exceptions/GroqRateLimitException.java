@@ -18,6 +18,12 @@ public class GroqRateLimitException extends GroqApiException {
         this.retryAfterSeconds = null;
     }
 
+    public GroqRateLimitException(String message, String errorType, String errorCode,
+                                  Integer retryAfterSeconds) {
+        super(message, 429, errorType, errorCode);
+        this.retryAfterSeconds = retryAfterSeconds;
+    }
+
     public GroqRateLimitException(String message, String errorType, String errorCode) {
         super(message, 429, errorType, errorCode);
         this.retryAfterSeconds = null;

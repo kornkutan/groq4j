@@ -25,6 +25,7 @@ public class ModelsServiceImpl implements ModelsService {
     
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
     
     /**
      * Constructor for dependency injection scenarios.
@@ -33,12 +34,21 @@ public class ModelsServiceImpl implements ModelsService {
      * @param apiKey Groq API key for authentication
      * @throws IllegalArgumentException if any parameter is null or apiKey is empty
      */
+    public ModelsServiceImpl(String apiKey) {
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
+    }
+
     public ModelsServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public ModelsServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         ValidationUtils.validateApiKey(apiKey);
         
         this.httpClient = httpClient;
         this.apiKey = apiKey;
+        this.baseUrl = baseUrl;
     }
     
     /**
@@ -70,55 +80,29 @@ public class ModelsServiceImpl implements ModelsService {
     public static ModelsService create(HttpClient httpClient, String apiKey) {
         return new ModelsServiceImpl(httpClient, apiKey);
     }
+
+    public static ModelsService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new ModelsServiceImpl(httpClient, apiKey, baseUrl);
+    }
     
     @Override
     public ModelListResponse listModels() {
-        try {
-            HttpRequest request = HttpUtils.createJsonRequest(
-                UrlUtils.buildModelsUrl(),
-                apiKey,
-                groq4j.enums.HttpMethod.GET,
-                ""
-            );
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseModelListResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to list models", e);
-        }
+        HttpRequest request = HttpUtils.createJsonRequest(
+            UrlUtils.buildModelsUrl(baseUrl), apiKey, groq4j.enums.HttpMethod.GET, "");
+
+        return parseModelListResponse(HttpUtils.sendAndReadBody(httpClient, request));
     }
-    
+
     @Override
     public Model retrieveModel(String modelId) {
         ValidationUtils.requireNonEmpty(modelId, "modelId");
-        
-        try {
-            HttpRequest request = HttpUtils.createJsonRequest(
-                UrlUtils.buildModelUrl(modelId),
-                apiKey,
-                groq4j.enums.HttpMethod.GET,
-                ""
-            );
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            HttpUtils.handleHttpErrors(response);
-            
-            String responseBody = response.body();
-            return parseModelResponse(responseBody);
-            
-        } catch (GroqApiException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new GroqNetworkException("Failed to retrieve model: " + modelId, e);
-        }
+
+        HttpRequest request = HttpUtils.createJsonRequest(
+            UrlUtils.buildModelUrl(baseUrl, modelId), apiKey, groq4j.enums.HttpMethod.GET, "");
+
+        return parseModelResponse(HttpUtils.sendAndReadBody(httpClient, request));
     }
-    
+
     /**
      * Parses a model list response from JSON.
      * 

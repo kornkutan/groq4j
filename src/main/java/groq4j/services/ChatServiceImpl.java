@@ -41,22 +41,30 @@ import java.util.stream.Stream;
 public class ChatServiceImpl implements ChatService {
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
 
     public ChatServiceImpl(String apiKey) {
-        this.httpClient = HttpUtils.createHttpClient();
-        this.apiKey = apiKey;
-        ValidationUtils.validateApiKey(apiKey);
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     public ChatServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public ChatServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
         ValidationUtils.validateApiKey(apiKey);
+        this.baseUrl = baseUrl;
     }
 
     public static ChatService create(HttpClient httpClient, String apiKey) {
         return new ChatServiceImpl(httpClient, apiKey);
+    }
+
+    public static ChatService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new ChatServiceImpl(httpClient, apiKey, baseUrl);
     }
 
     public static ChatService create(String apiKey) {
@@ -68,7 +76,7 @@ public class ChatServiceImpl implements ChatService {
         ValidationUtils.requireNonNull(request, "request");
         String body = JsonUtils.toJsonString(buildRequestBody(request, false));
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildChatCompletionsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST, body);
+            UrlUtils.buildChatCompletionsUrl(baseUrl), apiKey, HttpMethod.POST, body);
 
         return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                 .thenApply(this::parseCompletionResponse));
@@ -79,7 +87,7 @@ public class ChatServiceImpl implements ChatService {
         ValidationUtils.requireNonNull(request, "request");
         String body = JsonUtils.toJsonString(buildRequestBody(request, true));
         var httpRequest = HttpUtils.createStreamingRequest(
-            UrlUtils.buildChatCompletionsUrl(Constants.BASE_URL), apiKey, body);
+            UrlUtils.buildChatCompletionsUrl(baseUrl), apiKey, body);
 
         return SseUtils.payloads(HttpUtils.openEventStream(httpClient, httpRequest))
             .map(this::parseChunk);
@@ -180,10 +188,10 @@ public class ChatServiceImpl implements ChatService {
                 parseServiceTier(root.get("service_tier")),
                 parseExecutedTools(root.get("executed_tools")),
                 parseMcpToolLists(root.get("mcp_list_tools")));
-        } catch (GroqSerializationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse chat completion response: " + e.getMessage(), e);
+            throw e instanceof GroqSerializationException serialization
+                ? serialization
+                : new GroqSerializationException("Failed to parse chat completion response: " + e.getMessage(), e);
         }
     }
 

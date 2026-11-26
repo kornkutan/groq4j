@@ -16,6 +16,7 @@ import groq4j.services.RerankingService;
 import groq4j.services.RerankingServiceImpl;
 import groq4j.services.ResponsesService;
 import groq4j.services.ResponsesServiceImpl;
+import groq4j.utils.Constants;
 import groq4j.utils.HttpUtils;
 import groq4j.utils.ValidationUtils;
 
@@ -29,6 +30,7 @@ public class GroqApiClientImpl implements GroqApiClient {
 
     private final String apiKey;
     private final HttpClient httpClient;
+    private final String baseUrl;
 
     private ChatService chatService;
     private ResponsesService responsesService;
@@ -40,16 +42,20 @@ public class GroqApiClientImpl implements GroqApiClient {
     private FilesService filesService;
 
     public GroqApiClientImpl(String apiKey) {
-        ValidationUtils.validateApiKey(apiKey);
-        this.apiKey = apiKey;
-        this.httpClient = HttpUtils.createHttpClient();
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     public GroqApiClientImpl(HttpClient httpClient, String apiKey) {
-        ValidationUtils.validateApiKey(apiKey);
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public GroqApiClientImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
+        ValidationUtils.requireNonNull(baseUrl, "baseUrl");
+        ValidationUtils.validateApiKey(apiKey);
         this.apiKey = apiKey;
         this.httpClient = httpClient;
+        this.baseUrl = baseUrl;
     }
 
     public static GroqApiClient create(String apiKey) {
@@ -60,10 +66,22 @@ public class GroqApiClientImpl implements GroqApiClient {
         return new GroqApiClientImpl(httpClient, apiKey);
     }
 
+    /**
+     * Creates a client against another host, such as a proxy or a local mock server.
+     *
+     * @param httpClient the HTTP client to reuse
+     * @param apiKey the API key, sent as a bearer token
+     * @param baseUrl the API root, for example {@code http://localhost:8080/openai/v1}
+     * @return a client bound to that host
+     */
+    public static GroqApiClient create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new GroqApiClientImpl(httpClient, apiKey, baseUrl);
+    }
+
     @Override
     public ChatService chat() {
         if (chatService == null) {
-            chatService = new ChatServiceImpl(httpClient, apiKey);
+            chatService = new ChatServiceImpl(httpClient, apiKey, baseUrl);
         }
         return chatService;
     }
@@ -71,7 +89,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public ResponsesService responses() {
         if (responsesService == null) {
-            responsesService = new ResponsesServiceImpl(httpClient, apiKey);
+            responsesService = new ResponsesServiceImpl(httpClient, apiKey, baseUrl);
         }
         return responsesService;
     }
@@ -79,7 +97,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public EmbeddingsService embeddings() {
         if (embeddingsService == null) {
-            embeddingsService = new EmbeddingsServiceImpl(httpClient, apiKey);
+            embeddingsService = new EmbeddingsServiceImpl(httpClient, apiKey, baseUrl);
         }
         return embeddingsService;
     }
@@ -87,7 +105,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public RerankingService reranking() {
         if (rerankingService == null) {
-            rerankingService = new RerankingServiceImpl(httpClient, apiKey);
+            rerankingService = new RerankingServiceImpl(httpClient, apiKey, baseUrl);
         }
         return rerankingService;
     }
@@ -95,7 +113,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public AudioService audio() {
         if (audioService == null) {
-            audioService = new AudioServiceImpl(httpClient, apiKey);
+            audioService = new AudioServiceImpl(httpClient, apiKey, baseUrl);
         }
         return audioService;
     }
@@ -103,7 +121,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public ModelsService models() {
         if (modelsService == null) {
-            modelsService = new ModelsServiceImpl(httpClient, apiKey);
+            modelsService = new ModelsServiceImpl(httpClient, apiKey, baseUrl);
         }
         return modelsService;
     }
@@ -111,7 +129,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public BatchService batch() {
         if (batchService == null) {
-            batchService = new BatchServiceImpl(httpClient, apiKey);
+            batchService = new BatchServiceImpl(httpClient, apiKey, baseUrl);
         }
         return batchService;
     }
@@ -119,7 +137,7 @@ public class GroqApiClientImpl implements GroqApiClient {
     @Override
     public FilesService files() {
         if (filesService == null) {
-            filesService = new FilesServiceImpl(httpClient, apiKey);
+            filesService = new FilesServiceImpl(httpClient, apiKey, baseUrl);
         }
         return filesService;
     }

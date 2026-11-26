@@ -23,18 +23,22 @@ import java.util.Optional;
 public class EmbeddingsServiceImpl implements EmbeddingsService {
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
 
     public EmbeddingsServiceImpl(String apiKey) {
-        this.httpClient = HttpUtils.createHttpClient();
-        this.apiKey = apiKey;
-        ValidationUtils.validateApiKey(apiKey);
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     public EmbeddingsServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public EmbeddingsServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
         ValidationUtils.validateApiKey(apiKey);
+        this.baseUrl = baseUrl;
     }
 
     public static EmbeddingsService create(String apiKey) {
@@ -43,6 +47,10 @@ public class EmbeddingsServiceImpl implements EmbeddingsService {
 
     public static EmbeddingsService create(HttpClient httpClient, String apiKey) {
         return new EmbeddingsServiceImpl(httpClient, apiKey);
+    }
+
+    public static EmbeddingsService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new EmbeddingsServiceImpl(httpClient, apiKey, baseUrl);
     }
 
     @Override
@@ -56,7 +64,7 @@ public class EmbeddingsServiceImpl implements EmbeddingsService {
         request.user().ifPresent(v -> body.put("user", v));
 
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildEmbeddingsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            UrlUtils.buildEmbeddingsUrl(baseUrl), apiKey, HttpMethod.POST,
             JsonUtils.toJsonString(body));
 
         return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
@@ -105,10 +113,10 @@ public class EmbeddingsServiceImpl implements EmbeddingsService {
                     ? 0 : JsonUtils.doubleValue(usage.get("prompt_tokens")).intValue(),
                 JsonUtils.doubleValue(usage.get("total_tokens")) == null
                     ? 0 : JsonUtils.doubleValue(usage.get("total_tokens")).intValue());
-        } catch (GroqSerializationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse embeddings response: " + e.getMessage(), e);
+            throw e instanceof GroqSerializationException serialization
+                ? serialization
+                : new GroqSerializationException("Failed to parse embeddings response: " + e.getMessage(), e);
         }
     }
 }

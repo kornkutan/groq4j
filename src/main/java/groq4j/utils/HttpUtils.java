@@ -190,6 +190,24 @@ public final class HttpUtils {
         }
     }
 
+    /**
+     * Blocking send that maps transport problems to {@link GroqNetworkException} and HTTP error
+     * statuses to their typed exceptions.
+     */
+    public static String sendAndReadBody(HttpClient client, HttpRequest request) {
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw GroqNetworkException.connectionFailed("Request interrupted", e);
+        } catch (IOException e) {
+            throw GroqNetworkException.connectionFailed("Request failed", e);
+        }
+        handleHttpErrors(response);
+        return response.body();
+    }
+
     public static CompletableFuture<String> executeRequest(HttpClient client, HttpRequest request) {
         return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(response -> {
@@ -260,7 +278,8 @@ public final class HttpUtils {
             case 413 -> new GroqRequestTooLargeException(errorMessage, errorType, errorCode);
             case 422 -> new GroqUnprocessableEntityException(errorMessage, errorType, errorCode);
             case 424 -> new GroqFailedDependencyException(errorMessage, errorType, errorCode);
-            case 429 -> new GroqRateLimitException(errorMessage, extractRetryAfter(response));
+            case 429 -> new GroqRateLimitException(
+                errorMessage, errorType, errorCode, extractRetryAfter(response));
             case 498 -> new GroqApiException(
                 "Flex tier capacity exceeded: " + errorMessage, statusCode, errorType, errorCode);
             case 499 -> new GroqApiException(

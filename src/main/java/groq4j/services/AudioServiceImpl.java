@@ -31,22 +31,30 @@ import java.util.Optional;
 public class AudioServiceImpl implements AudioService {
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
 
     public AudioServiceImpl(String apiKey) {
-        this.httpClient = HttpUtils.createHttpClient();
-        this.apiKey = apiKey;
-        ValidationUtils.validateApiKey(apiKey);
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     public AudioServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public AudioServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
         ValidationUtils.validateApiKey(apiKey);
+        this.baseUrl = baseUrl;
     }
 
     public static AudioService create(HttpClient httpClient, String apiKey) {
         return new AudioServiceImpl(httpClient, apiKey);
+    }
+
+    public static AudioService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new AudioServiceImpl(httpClient, apiKey, baseUrl);
     }
 
     public static AudioService create(String apiKey) {
@@ -59,13 +67,13 @@ public class AudioServiceImpl implements AudioService {
 
         if (request.hasFile()) {
             var httpRequest = HttpUtils.createMultipartRequest(
-                UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL), apiKey, transcriptionForm(request));
+                UrlUtils.buildAudioTranscriptionsUrl(baseUrl), apiKey, transcriptionForm(request));
             return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                     .thenApply(this::parseTranscriptionResponse));
         }
 
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            UrlUtils.buildAudioTranscriptionsUrl(baseUrl), apiKey, HttpMethod.POST,
             JsonUtils.toJsonString(transcriptionBody(request)));
         return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                 .thenApply(this::parseTranscriptionResponse));
@@ -77,13 +85,13 @@ public class AudioServiceImpl implements AudioService {
 
         if (request.hasFile()) {
             var httpRequest = HttpUtils.createMultipartRequest(
-                UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL), apiKey, translationForm(request));
+                UrlUtils.buildAudioTranslationsUrl(baseUrl), apiKey, translationForm(request));
             return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                     .thenApply(this::parseTranslationResponse));
         }
 
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            UrlUtils.buildAudioTranslationsUrl(baseUrl), apiKey, HttpMethod.POST,
             JsonUtils.toJsonString(translationBody(request)));
         return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                 .thenApply(this::parseTranslationResponse));
@@ -102,7 +110,7 @@ public class AudioServiceImpl implements AudioService {
         request.speed().ifPresent(v -> body.put("speed", v));
 
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildAudioSpeechUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            UrlUtils.buildAudioSpeechUrl(baseUrl), apiKey, HttpMethod.POST,
             JsonUtils.toJsonString(body));
 
         return HttpUtils.await(HttpUtils.executeRequestForBytes(httpClient, httpRequest));
@@ -200,10 +208,10 @@ public class AudioServiceImpl implements AudioService {
                 Optional.ofNullable(JsonUtils.doubleValue(root.get("duration"))),
                 parseSegments(root.get("segments")),
                 parseWords(root.get("words")));
-        } catch (GroqSerializationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse transcription response: " + e.getMessage(), e);
+            throw e instanceof GroqSerializationException serialization
+                ? serialization
+                : new GroqSerializationException("Failed to parse transcription response: " + e.getMessage(), e);
         }
     }
 
@@ -216,10 +224,10 @@ public class AudioServiceImpl implements AudioService {
                 Optional.ofNullable(JsonUtils.stringValue(root.get("language"))),
                 Optional.ofNullable(JsonUtils.doubleValue(root.get("duration"))),
                 parseSegments(root.get("segments")));
-        } catch (GroqSerializationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse translation response: " + e.getMessage(), e);
+            throw e instanceof GroqSerializationException serialization
+                ? serialization
+                : new GroqSerializationException("Failed to parse translation response: " + e.getMessage(), e);
         }
     }
 

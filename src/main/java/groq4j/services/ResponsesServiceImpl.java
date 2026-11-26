@@ -28,18 +28,22 @@ import java.util.stream.Stream;
 public class ResponsesServiceImpl implements ResponsesService {
     private final HttpClient httpClient;
     private final String apiKey;
+    private final String baseUrl;
 
     public ResponsesServiceImpl(String apiKey) {
-        this.httpClient = HttpUtils.createHttpClient();
-        this.apiKey = apiKey;
-        ValidationUtils.validateApiKey(apiKey);
+        this(HttpUtils.createHttpClient(), apiKey, Constants.BASE_URL);
     }
 
     public ResponsesServiceImpl(HttpClient httpClient, String apiKey) {
+        this(httpClient, apiKey, Constants.BASE_URL);
+    }
+
+    public ResponsesServiceImpl(HttpClient httpClient, String apiKey, String baseUrl) {
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
         ValidationUtils.validateApiKey(apiKey);
+        this.baseUrl = baseUrl;
     }
 
     public static ResponsesService create(String apiKey) {
@@ -50,12 +54,16 @@ public class ResponsesServiceImpl implements ResponsesService {
         return new ResponsesServiceImpl(httpClient, apiKey);
     }
 
+    public static ResponsesService create(HttpClient httpClient, String apiKey, String baseUrl) {
+        return new ResponsesServiceImpl(httpClient, apiKey, baseUrl);
+    }
+
     @Override
     public ResponseObject createResponse(ResponseRequest request) {
         ValidationUtils.requireNonNull(request, "request");
         String body = JsonUtils.toJsonString(buildRequestBody(request, false));
         var httpRequest = HttpUtils.createJsonRequest(
-            UrlUtils.buildResponsesUrl(Constants.BASE_URL), apiKey, HttpMethod.POST, body);
+            UrlUtils.buildResponsesUrl(baseUrl), apiKey, HttpMethod.POST, body);
 
         return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
                 .thenApply(this::parseResponse));
@@ -66,7 +74,7 @@ public class ResponsesServiceImpl implements ResponsesService {
         ValidationUtils.requireNonNull(request, "request");
         String body = JsonUtils.toJsonString(buildRequestBody(request, true));
         var httpRequest = HttpUtils.createStreamingRequest(
-            UrlUtils.buildResponsesUrl(Constants.BASE_URL), apiKey, body);
+            UrlUtils.buildResponsesUrl(baseUrl), apiKey, body);
 
         return SseUtils.payloads(HttpUtils.openEventStream(httpClient, httpRequest))
             .map(this::parseEvent);
@@ -147,10 +155,10 @@ public class ResponsesServiceImpl implements ResponsesService {
                 Optional.ofNullable(JsonUtils.stringValue(root.get("instructions"))),
                 JsonUtils.asMap(root.get("metadata")),
                 root);
-        } catch (GroqSerializationException e) {
-            throw e;
         } catch (Exception e) {
-            throw new GroqSerializationException("Failed to parse response: " + e.getMessage(), e);
+            throw e instanceof GroqSerializationException serialization
+                ? serialization
+                : new GroqSerializationException("Failed to parse response: " + e.getMessage(), e);
         }
     }
 
