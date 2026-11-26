@@ -39,9 +39,20 @@ Unofficial library, not affiliated with Groq Inc. Meant for server-side code.
 
 ## Install
 
-The latest release on Maven Central is 1.0.1.
+1.1.0 is the current release and is not on Maven Central yet. Grab the jar from the [release page](https://github.com/kornkutan/groq4j/releases/tag/v1.1.0) and put it on your classpath. It has no transitive dependencies, so the jar is all you need:
 
-Maven:
+```bash
+curl -LO https://github.com/kornkutan/groq4j/releases/download/v1.1.0/groq4j-1.1.0.jar
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/kornkutan/groq4j.git
+cd groq4j && mvn install -DskipTests
+```
+
+Maven Central still serves 1.0.1, which predates the Responses, Embeddings and Reranking services. Use it only if that is what you want:
 
 ```xml
 <dependency>
@@ -49,25 +60,6 @@ Maven:
     <artifactId>groq4j</artifactId>
     <version>1.0.1</version>
 </dependency>
-```
-
-Gradle:
-
-```gradle
-implementation 'io.github.kornkutan:groq4j:1.0.1'
-```
-
-Version 1.1.0, what this README documents, is tagged and pushed but still pending publication to Central. To use it now, build from source:
-
-```bash
-git clone https://github.com/kornkutan/groq4j.git
-cd groq4j && mvn install -DskipTests
-```
-
-Or build the jar and add it by hand:
-
-```bash
-mvn package -DskipTests   # target/groq4j-1.1.0.jar
 ```
 
 ## Quick start
