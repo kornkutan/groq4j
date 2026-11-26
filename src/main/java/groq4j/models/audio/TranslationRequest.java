@@ -10,7 +10,8 @@ public record TranslationRequest(
     Optional<String> url,
     Optional<String> prompt,
     Optional<ResponseFormat> responseFormat,
-    Optional<Double> temperature
+    Optional<Double> temperature,
+    Optional<String> filename
 ) {
     public TranslationRequest {
         if (model == null || model.trim().isEmpty()) {
@@ -49,13 +50,18 @@ public record TranslationRequest(
     }
     
     public static TranslationRequest withFile(String model, byte[] file) {
+        return withFile(model, file, null);
+    }
+
+    public static TranslationRequest withFile(String model, byte[] file, String filename) {
         return new TranslationRequest(
             model,
             Optional.of(file),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()
+            Optional.empty(),
+            Optional.ofNullable(filename)
         );
     }
     
@@ -64,6 +70,7 @@ public record TranslationRequest(
             model,
             Optional.empty(),
             Optional.of(url),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty()

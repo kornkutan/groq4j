@@ -32,3 +32,7 @@ MAVEN_CENTRAL_SETUP.md
 publish-to-maven-central.sh
 verify-setup.sh
 public-key.asc
+# Eclipse
+.classpath
+.project
+.settings/

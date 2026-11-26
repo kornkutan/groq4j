@@ -1,9 +1,11 @@
 package groq4j.builders;
 
+import groq4j.enums.CitationOptions;
 import groq4j.enums.MessageRole;
 import groq4j.enums.ReasoningEffort;
 import groq4j.enums.ReasoningFormat;
 import groq4j.enums.ServiceTier;
+import groq4j.models.chat.ChatCompletionDocument;
 import groq4j.models.chat.ChatCompletionRequest;
 import groq4j.models.chat.JsonSchemaResponseFormat;
 import groq4j.models.chat.SearchSettings;
@@ -39,6 +41,11 @@ public class ChatCompletionRequestBuilder {
     private Integer topLogprobs;
     private Double topP;
     private String user;
+    private CitationOptions citationOptions;
+    private List<ChatCompletionDocument> documents;
+    private Boolean disableToolValidation;
+    private Boolean includeReasoning;
+    private Map<String, String> metadata;
     
     public static ChatCompletionRequestBuilder create() {
         return new ChatCompletionRequestBuilder();
@@ -229,6 +236,63 @@ public class ChatCompletionRequestBuilder {
         return this;
     }
     
+    public ChatCompletionRequestBuilder citationOptions(CitationOptions citationOptions) {
+        this.citationOptions = citationOptions;
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder citationsDisabled() {
+        return citationOptions(CitationOptions.DISABLED);
+    }
+
+    public ChatCompletionRequestBuilder documents(List<ChatCompletionDocument> documents) {
+        this.documents = documents;
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder addDocument(ChatCompletionDocument document) {
+        if (this.documents == null) {
+            this.documents = new ArrayList<>();
+        }
+        this.documents.add(document);
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder addJsonDocument(String id, Map<String, Object> data) {
+        return addDocument(ChatCompletionDocument.json(id, data));
+    }
+
+    public ChatCompletionRequestBuilder addTextDocument(String id, String text) {
+        return addDocument(ChatCompletionDocument.text(id, text));
+    }
+
+    public ChatCompletionRequestBuilder disableToolValidation(boolean disableToolValidation) {
+        this.disableToolValidation = disableToolValidation;
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder includeReasoning(boolean includeReasoning) {
+        this.includeReasoning = includeReasoning;
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder metadata(Map<String, String> metadata) {
+        this.metadata = metadata;
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder metadata(String key, String value) {
+        if (this.metadata == null) {
+            this.metadata = new java.util.HashMap<>();
+        }
+        this.metadata.put(key, value);
+        return this;
+    }
+
+    public ChatCompletionRequestBuilder userMessageWithImages(String text, String... imageUrls) {
+        return addMessage(Message.userWithImages(text, imageUrls));
+    }
+
     public ChatCompletionRequest build() {
         return new ChatCompletionRequest(
             List.copyOf(messages),
@@ -252,7 +316,12 @@ public class ChatCompletionRequestBuilder {
             Optional.ofNullable(tools),
             Optional.ofNullable(topLogprobs),
             Optional.ofNullable(topP),
-            Optional.ofNullable(user)
+            Optional.ofNullable(user),
+            Optional.ofNullable(citationOptions),
+            Optional.ofNullable(documents),
+            Optional.ofNullable(disableToolValidation),
+            Optional.ofNullable(includeReasoning),
+            Optional.ofNullable(metadata)
         );
     }
 }

@@ -101,7 +101,7 @@ public class FilesServiceImpl implements FilesService {
         );
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
-        String responseJson = future.join();
+        String responseJson = HttpUtils.await(future);
 
         return parseFileObject(responseJson);
     }
@@ -123,7 +123,7 @@ public class FilesServiceImpl implements FilesService {
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
-        String responseJson = future.join();
+        String responseJson = HttpUtils.await(future);
 
         return parseFileListResponse(responseJson);
     }
@@ -136,7 +136,7 @@ public class FilesServiceImpl implements FilesService {
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
-        String responseJson = future.join();
+        String responseJson = HttpUtils.await(future);
 
         return parseFileObject(responseJson);
     }
@@ -149,7 +149,7 @@ public class FilesServiceImpl implements FilesService {
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.DELETE, null);
 
         CompletableFuture<String> future = HttpUtils.executeRequest(httpClient, request);
-        String responseJson = future.join();
+        String responseJson = HttpUtils.await(future);
 
         return parseFileDeleteResponse(responseJson);
     }
@@ -162,7 +162,7 @@ public class FilesServiceImpl implements FilesService {
         HttpRequest request = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.GET, null);
 
         CompletableFuture<byte[]> future = HttpUtils.executeRequestForBytes(httpClient, request);
-        return future.join();
+        return HttpUtils.await(future);
     }
 
     // Private parsing methods

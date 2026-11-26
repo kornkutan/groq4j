@@ -20,6 +20,7 @@ public class TranslationRequestBuilder {
     private Optional<String> prompt = Optional.empty();
     private Optional<ResponseFormat> responseFormat = Optional.empty();
     private Optional<Double> temperature = Optional.empty();
+    private Optional<String> filename = Optional.empty();
     
     private TranslationRequestBuilder() {
         // Private constructor - use static factory methods
@@ -46,6 +47,10 @@ public class TranslationRequestBuilder {
      */
     public static TranslationRequestBuilder withFile(String model, byte[] audioData) {
         return create(model).file(audioData);
+    }
+
+    public static TranslationRequestBuilder withFile(String model, byte[] audioData, String filename) {
+        return create(model).file(audioData, filename);
     }
     
     /**
@@ -85,6 +90,7 @@ public class TranslationRequestBuilder {
     public TranslationRequestBuilder file(byte[] audioData, String filename) {
         if (filename != null && !filename.isEmpty()) {
             FileUtils.validateAudioFile(audioData, filename);
+            this.filename = Optional.of(filename);
         }
         return file(audioData);
     }
@@ -193,7 +199,8 @@ public class TranslationRequestBuilder {
             url,
             prompt,
             responseFormat,
-            temperature
+            temperature,
+            filename
         );
     }
 }

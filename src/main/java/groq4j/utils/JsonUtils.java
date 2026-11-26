@@ -2,122 +2,234 @@ package groq4j.utils;
 
 import groq4j.exceptions.GroqSerializationException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Minimal, dependency-free JSON reader and writer.
+ *
+ * <p>Reading produces plain Java values: {@link Map} for objects, {@link List} for arrays,
+ * {@link String}, {@link Long} or {@link Double} for numbers, {@link Boolean} and {@code null}.
+ * Writing accepts the same shapes plus enums and {@link Optional}.
+ */
 public final class JsonUtils {
     private JsonUtils() {
         // Prevent instantiation
     }
 
+    // ---------------------------------------------------------------- writing
+
     public static String toJsonString(Object obj) {
         if (obj == null) {
             return "null";
-        } else if (obj instanceof String) {
-            return "\"" + escapeJson((String) obj) + "\"";
-        } else if (obj instanceof Number || obj instanceof Boolean) {
+        } else if (obj instanceof String s) {
+            return quote(s);
+        } else if (obj instanceof Boolean || obj instanceof Number) {
             return obj.toString();
         } else if (obj instanceof Optional<?> optional) {
             return optional.map(JsonUtils::toJsonString).orElse("null");
         } else if (obj instanceof Map<?, ?> map) {
             return mapToJson(map);
-        } else if (obj instanceof List<?> list) {
-            return listToJson(list);
+        } else if (obj instanceof Iterable<?> iterable) {
+            return iterableToJson(iterable);
+        } else if (obj instanceof Object[] array) {
+            return iterableToJson(List.of(array));
         } else if (obj instanceof Enum<?> enumValue) {
-            return toJsonString(enumValue.toString());
+            return quote(enumValue.toString());
         }
         throw new GroqSerializationException("Unsupported object type for JSON serialization: " + obj.getClass());
     }
 
     private static String mapToJson(Map<?, ?> map) {
-        if (map.isEmpty()) {
-            return "{}";
-        }
-        
         var sb = new StringBuilder("{");
         boolean first = true;
         for (var entry : map.entrySet()) {
-            if (!first) sb.append(",");
-            sb.append("\"").append(escapeJson(entry.getKey().toString())).append("\":");
-            sb.append(toJsonString(entry.getValue()));
+            if (entry.getValue() == null) {
+                continue;
+            }
+            if (!first) {
+                sb.append(',');
+            }
+            sb.append(quote(entry.getKey().toString())).append(':').append(toJsonString(entry.getValue()));
             first = false;
         }
-        sb.append("}");
-        return sb.toString();
+        return sb.append('}').toString();
     }
 
-    private static String listToJson(List<?> list) {
-        if (list.isEmpty()) {
-            return "[]";
-        }
-        
+    private static String iterableToJson(Iterable<?> items) {
         var sb = new StringBuilder("[");
         boolean first = true;
-        for (var item : list) {
-            if (!first) sb.append(",");
+        for (Object item : items) {
+            if (!first) {
+                sb.append(',');
+            }
             sb.append(toJsonString(item));
             first = false;
         }
-        sb.append("]");
-        return sb.toString();
+        return sb.append(']').toString();
+    }
+
+    public static String quote(String value) {
+        return "\"" + escapeJson(value) + "\"";
     }
 
     public static String escapeJson(String str) {
         if (str == null) {
             return "";
         }
-        return str.replace("\\", "\\\\")
-                  .replace("\"", "\\\"")
-                  .replace("\n", "\\n")
-                  .replace("\r", "\\r")
-                  .replace("\t", "\\t")
-                  .replace("\b", "\\b")
-                  .replace("\f", "\\f");
+        var sb = new StringBuilder(str.length() + 16);
+        for (int i = 0; i < str.length(); i++) {
+            char c = str.charAt(i);
+            switch (c) {
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                case '\b' -> sb.append("\\b");
+                case '\f' -> sb.append("\\f");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 
-    public static String extractStringValue(String json, String path) {
-        try {
-            return extractValue(json, path, true);
-        } catch (Exception e) {
-            throw GroqSerializationException.jsonParsingError("Failed to extract string value at path: " + path, e);
+    // ---------------------------------------------------------------- reading
+
+    /** Parses any JSON document into plain Java values. */
+    public static Object parse(String json) {
+        if (json == null || json.isBlank()) {
+            throw GroqSerializationException.invalidResponseFormat("Cannot parse empty JSON");
         }
+        return new Reader(json).readDocument();
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> parseObject(String json) {
+        Object parsed = parse(json);
+        if (parsed instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        throw GroqSerializationException.invalidResponseFormat("Expected a JSON object but got " + describe(parsed));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Object> parseArray(String json) {
+        Object parsed = parse(json);
+        if (parsed instanceof List<?> list) {
+            return (List<Object>) list;
+        }
+        throw GroqSerializationException.invalidResponseFormat("Expected a JSON array but got " + describe(parsed));
+    }
+
+    /**
+     * Resolves a dot separated path such as {@code usage.prompt_tokens} or
+     * {@code choices[0].message.content} against a raw JSON document.
+     *
+     * @return the value at the path, or {@code null} when any segment is missing
+     */
+    public static Object node(String json, String path) {
+        if (json == null) {
+            return null;
+        }
+        return node(parse(json), path);
+    }
+
+    public static Object node(Object root, String path) {
+        if (root == null) {
+            return null;
+        }
+        if (path == null || path.isEmpty()) {
+            return root;
+        }
+
+        Object current = root;
+        for (String segment : path.split("\\.")) {
+            if (current == null) {
+                return null;
+            }
+            String key = segment;
+            Integer index = null;
+            int bracket = segment.indexOf('[');
+            if (bracket >= 0) {
+                key = segment.substring(0, bracket);
+                int close = segment.indexOf(']', bracket);
+                if (close < 0) {
+                    return null;
+                }
+                try {
+                    index = Integer.valueOf(segment.substring(bracket + 1, close));
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
+            if (!key.isEmpty()) {
+                if (!(current instanceof Map<?, ?> map)) {
+                    return null;
+                }
+                current = map.get(key);
+            }
+            if (index != null) {
+                if (!(current instanceof List<?> list) || index < 0 || index >= list.size()) {
+                    return null;
+                }
+                current = list.get(index);
+            }
+        }
+        return current;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    public static List<Object> asList(Object value) {
+        return value instanceof List<?> list ? (List<Object>) list : List.of();
+    }
+
+    // ------------------------------------------------- path based accessors
+
+    public static String extractStringValue(String json, String path) {
+        return stringValue(node(json, path));
     }
 
     public static Integer extractIntValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return value != null ? Integer.parseInt(value) : null;
-        } catch (NumberFormatException e) {
-            throw GroqSerializationException.jsonParsingError("Failed to parse integer at path: " + path, e);
-        }
-    }
-
-    public static Double extractDoubleValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return value != null ? Double.parseDouble(value) : null;
-        } catch (NumberFormatException e) {
-            throw GroqSerializationException.jsonParsingError("Failed to parse double at path: " + path, e);
-        }
-    }
-
-    public static Boolean extractBooleanValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return value != null ? Boolean.parseBoolean(value) : null;
-        } catch (Exception e) {
-            throw GroqSerializationException.jsonParsingError("Failed to parse boolean at path: " + path, e);
-        }
+        Double value = doubleValue(node(json, path));
+        return value == null ? null : value.intValue();
     }
 
     public static Long extractLongValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return value != null ? Long.parseLong(value) : null;
-        } catch (NumberFormatException e) {
-            throw GroqSerializationException.jsonParsingError("Failed to parse long at path: " + path, e);
+        Object value = node(json, path);
+        if (value instanceof Number number) {
+            return number.longValue();
         }
+        return null;
+    }
+
+    public static Double extractDoubleValue(String json, String path) {
+        return doubleValue(node(json, path));
+    }
+
+    public static Boolean extractBooleanValue(String json, String path) {
+        Object value = node(json, path);
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        if (value instanceof String s) {
+            return Boolean.parseBoolean(s);
+        }
+        return null;
     }
 
     public static int extractIntValuePrimitive(String json, String path) {
@@ -132,163 +244,81 @@ public final class JsonUtils {
 
     public static boolean extractBooleanValuePrimitive(String json, String path) {
         Boolean value = extractBooleanValue(json, path);
-        return value != null ? value : false;
+        return value != null && value;
     }
 
+    /** Returns the JSON text of the array at the path, or {@code "[]"} when absent. */
     public static String extractArrayValue(String json, String path) {
-        try {
-            String keyPattern = "\"" + path.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            int keyIndex = json.indexOf(keyPattern);
-            if (keyIndex == -1) {
-                return "[]";
-            }
-            
-            int colonIndex = json.indexOf(":", keyIndex + keyPattern.length());
-            if (colonIndex == -1) {
-                return "[]";
-            }
-            
-            int valueStart = colonIndex + 1;
-            while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart))) {
-                valueStart++;
-            }
-            
-            if (valueStart >= json.length() || json.charAt(valueStart) != '[') {
-                return "[]";
-            }
-            
-            int arrayEnd = findArrayEnd(json, valueStart + 1);
-            if (arrayEnd == -1) {
-                return "[]";
-            }
-            
-            return json.substring(valueStart, arrayEnd + 1);
-        } catch (Exception e) {
-            throw GroqSerializationException.jsonParsingError("Failed to extract array at path: " + path, e);
-        }
+        Object value = node(json, path);
+        return value instanceof List<?> ? toJsonString(value) : "[]";
+    }
+
+    /** Returns the JSON text of the object at the path, or {@code null} when absent. */
+    public static String extractObjectValue(String json, String path) {
+        Object value = node(json, path);
+        return value instanceof Map<?, ?> ? toJsonString(value) : null;
     }
 
     public static Optional<Object> extractOptionalValue(String json, String path) {
-        String value = extractValue(json, path, false);
-        return value != null && !value.equals("null") ? Optional.of(value) : Optional.empty();
+        return Optional.ofNullable(node(json, path));
     }
 
     public static Optional<Integer> extractOptionalIntValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return (value != null && !value.equals("null")) ? Optional.of(Integer.parseInt(value)) : Optional.empty();
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(extractIntValue(json, path));
     }
 
     public static Optional<Long> extractOptionalLongValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            return (value != null && !value.equals("null")) ? Optional.of(Long.parseLong(value)) : Optional.empty();
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(extractLongValue(json, path));
     }
 
     public static Optional<String> extractOptionalStringValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, true);
-            return (value != null && !value.equals("null")) ? Optional.of(value) : Optional.empty();
-        } catch (Exception e) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(extractStringValue(json, path));
     }
 
     public static Optional<Map<String, String>> extractOptionalMapValue(String json, String path) {
-        try {
-            String value = extractValue(json, path, false);
-            if (value == null || value.equals("null") || value.trim().isEmpty()) {
-                return Optional.empty();
-            }
-            
-            // Simple map parsing for metadata - assumes string key-value pairs
-            Map<String, String> map = new java.util.HashMap<>();
-            if (value.startsWith("{") && value.endsWith("}")) {
-                String content = value.substring(1, value.length() - 1).trim();
-                if (!content.isEmpty()) {
-                    String[] pairs = content.split(",");
-                    for (String pair : pairs) {
-                        String[] keyValue = pair.split(":", 2);
-                        if (keyValue.length == 2) {
-                            String key = keyValue[0].trim().replaceAll("^\"|\"+$", "");
-                            String val = keyValue[1].trim().replaceAll("^\"|\"+$", "");
-                            map.put(key, val);
-                        }
-                    }
-                }
-            }
-            return map.isEmpty() ? Optional.empty() : Optional.of(map);
-        } catch (Exception e) {
+        Object value = node(json, path);
+        if (!(value instanceof Map<?, ?> map) || map.isEmpty()) {
             return Optional.empty();
         }
+        var result = new LinkedHashMap<String, String>();
+        map.forEach((k, v) -> result.put(String.valueOf(k), v == null ? null : String.valueOf(v)));
+        return Optional.of(result);
     }
 
-    public static String extractObjectValue(String json, String path) {
-        try {
-            String keyPattern = "\"" + path.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            int keyIndex = json.indexOf(keyPattern);
-            if (keyIndex == -1) {
-                return null;
-            }
-            
-            int colonIndex = json.indexOf(":", keyIndex + keyPattern.length());
-            if (colonIndex == -1) {
-                return null;
-            }
-            
-            int valueStart = colonIndex + 1;
-            while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart))) {
-                valueStart++;
-            }
-            
-            if (valueStart >= json.length() || json.charAt(valueStart) != '{') {
-                return null;
-            }
-            
-            int objectEnd = findObjectEnd(json, valueStart + 1);
-            if (objectEnd == -1) {
-                return null;
-            }
-            
-            return json.substring(valueStart, objectEnd + 1);
-        } catch (Exception e) {
-            throw GroqSerializationException.jsonParsingError("Failed to extract object at path: " + path, e);
+    // ------------------------------------------------------------ conversion
+
+    public static String stringValue(Object value) {
+        if (value == null) {
+            return null;
         }
+        if (value instanceof String s) {
+            return s;
+        }
+        if (value instanceof Map<?, ?> || value instanceof List<?>) {
+            return toJsonString(value);
+        }
+        return String.valueOf(value);
     }
 
-    private static int findObjectEnd(String json, int start) {
-        int braceCount = 1;
-        boolean inString = false;
-        
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-            
-            if (!inString) {
-                if (c == '"') {
-                    inString = true;
-                } else if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    braceCount--;
-                    if (braceCount == 0) {
-                        return i;
-                    }
-                }
-            } else {
-                if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                    inString = false;
-                }
+    public static Double doubleValue(Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String s) {
+            try {
+                return Double.valueOf(s);
+            } catch (NumberFormatException e) {
+                return null;
             }
         }
-        
-        return -1;
+        return null;
     }
+
+    private static String describe(Object value) {
+        return value == null ? "null" : value.getClass().getSimpleName();
+    }
+
+    // ---------------------------------------------------------------- helpers
 
     @FunctionalInterface
     public interface JsonParser<T> {
@@ -296,248 +326,205 @@ public final class JsonUtils {
     }
 
     public static <T> List<T> parseJsonArray(String jsonArray, JsonParser<T> parser) {
-        if (jsonArray == null || jsonArray.trim().isEmpty() || jsonArray.equals("[]")) {
+        if (jsonArray == null || jsonArray.isBlank()) {
             return List.of();
         }
-        
-        String content = jsonArray.trim();
-        if (content.startsWith("[") && content.endsWith("]")) {
-            content = content.substring(1, content.length() - 1).trim();
+        List<Object> elements = parseArray(jsonArray);
+        List<T> result = new ArrayList<>(elements.size());
+        for (Object element : elements) {
+            result.add(parser.parse(toJsonString(element)));
         }
-        
-        if (content.isEmpty()) {
-            return List.of();
-        }
-        
-        String[] elements = parseArrayElements(content);
-        return java.util.Arrays.stream(elements)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(parser::parse)
-                .collect(java.util.stream.Collectors.toList());
+        return result;
     }
 
-    private static String extractValue(String json, String path, boolean isString) {
-        String[] parts = path.split("\\.");
-        String currentJson = json;
-        
-        for (String part : parts) {
-            if (part.contains("[") && part.contains("]")) {
-                String arrayKey = part.substring(0, part.indexOf("["));
-                int index = Integer.parseInt(part.substring(part.indexOf("[") + 1, part.indexOf("]")));
-                currentJson = extractArrayElement(currentJson, arrayKey, index);
-            } else {
-                currentJson = extractObjectValue(currentJson, part, isString && part.equals(parts[parts.length - 1]));
-            }
-            
-            if (currentJson == null) {
-                return null;
-            }
-        }
-        
-        return currentJson;
-    }
+    /** Recursive descent reader for RFC 8259 JSON. */
+    private static final class Reader {
+        private final String source;
+        private int pos;
 
-    private static String extractObjectValue(String json, String key, boolean isStringValue) {
-        // Look for the exact key pattern: "key"
-        String keyPattern = "\"" + key.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-        int keyIndex = json.indexOf(keyPattern);
-        if (keyIndex == -1) {
-            return null;
+        Reader(String source) {
+            this.source = source;
         }
-        
-        // Find the colon after the key
-        int colonIndex = json.indexOf(":", keyIndex + keyPattern.length());
-        if (colonIndex == -1) {
-            return null;
+
+        Object readDocument() {
+            skipWhitespace();
+            Object value = readValue();
+            skipWhitespace();
+            if (pos < source.length()) {
+                throw error("Unexpected trailing content");
+            }
+            return value;
         }
-        
-        // Skip whitespace after colon
-        int valueStart = colonIndex + 1;
-        while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart))) {
-            valueStart++;
+
+        private Object readValue() {
+            skipWhitespace();
+            if (pos >= source.length()) {
+                throw error("Unexpected end of input");
+            }
+            char c = source.charAt(pos);
+            return switch (c) {
+                case '{' -> readObject();
+                case '[' -> readArray();
+                case '"' -> readString();
+                case 't' -> readLiteral("true", Boolean.TRUE);
+                case 'f' -> readLiteral("false", Boolean.FALSE);
+                case 'n' -> readLiteral("null", null);
+                default -> readNumber();
+            };
         }
-        
-        if (valueStart >= json.length()) {
-            return null;
-        }
-        
-        if (isStringValue) {
-            if (json.charAt(valueStart) == '"') {
-                int valueEnd = findStringEnd(json, valueStart + 1);
-                if (valueEnd != -1) {
-                    return json.substring(valueStart + 1, valueEnd);
+
+        private Map<String, Object> readObject() {
+            var map = new LinkedHashMap<String, Object>();
+            expect('{');
+            skipWhitespace();
+            if (peek() == '}') {
+                pos++;
+                return map;
+            }
+            while (true) {
+                skipWhitespace();
+                String key = readString();
+                skipWhitespace();
+                expect(':');
+                map.put(key, readValue());
+                skipWhitespace();
+                char c = next();
+                if (c == '}') {
+                    return map;
+                }
+                if (c != ',') {
+                    throw error("Expected ',' or '}' in object");
                 }
             }
-        } else {
-            int valueEnd = findValueEnd(json, valueStart);
-            if (valueEnd != -1) {
-                return json.substring(valueStart, valueEnd).trim();
+        }
+
+        private List<Object> readArray() {
+            var list = new ArrayList<>();
+            expect('[');
+            skipWhitespace();
+            if (peek() == ']') {
+                pos++;
+                return list;
+            }
+            while (true) {
+                list.add(readValue());
+                skipWhitespace();
+                char c = next();
+                if (c == ']') {
+                    return list;
+                }
+                if (c != ',') {
+                    throw error("Expected ',' or ']' in array");
+                }
             }
         }
-        
-        return null;
-    }
 
-    private static String extractArrayElement(String json, String arrayKey, int index) {
-        // Look for the exact key pattern: "key"
-        String keyPattern = "\"" + arrayKey.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-        int keyIndex = json.indexOf(keyPattern);
-        if (keyIndex == -1) {
-            return null;
-        }
-        
-        // Find the colon after the key
-        int colonIndex = json.indexOf(":", keyIndex + keyPattern.length());
-        if (colonIndex == -1) {
-            return null;
-        }
-        
-        // Skip whitespace after colon
-        int valueStart = colonIndex + 1;
-        while (valueStart < json.length() && Character.isWhitespace(json.charAt(valueStart))) {
-            valueStart++;
-        }
-        
-        // Should be opening bracket [
-        if (valueStart >= json.length() || json.charAt(valueStart) != '[') {
-            return null;
-        }
-        
-        int arrayEnd = findArrayEnd(json, valueStart + 1);
-        if (arrayEnd == -1) {
-            return null;
-        }
-        
-        String arrayContent = json.substring(valueStart + 1, arrayEnd);
-        String[] elements = parseArrayElements(arrayContent);
-        
-        if (index >= 0 && index < elements.length) {
-            return elements[index].trim();
-        }
-        
-        return null;
-    }
-
-    private static String[] parseArrayElements(String arrayContent) {
-        if (arrayContent.trim().isEmpty()) {
-            return new String[0];
-        }
-        
-        List<String> elements = new java.util.ArrayList<>();
-        int start = 0;
-        int braceCount = 0;
-        int bracketCount = 0;
-        boolean inString = false;
-        
-        for (int i = 0; i < arrayContent.length(); i++) {
-            char c = arrayContent.charAt(i);
-            
-            if (!inString) {
+        private String readString() {
+            expect('"');
+            var sb = new StringBuilder();
+            while (true) {
+                if (pos >= source.length()) {
+                    throw error("Unterminated string");
+                }
+                char c = source.charAt(pos++);
                 if (c == '"') {
-                    inString = true;
-                } else if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    braceCount--;
-                } else if (c == '[') {
-                    bracketCount++;
-                } else if (c == ']') {
-                    bracketCount--;
-                } else if (c == ',' && braceCount == 0 && bracketCount == 0) {
-                    // Found a top-level comma - this is an element separator
-                    elements.add(arrayContent.substring(start, i).trim());
-                    start = i + 1;
+                    return sb.toString();
                 }
-            } else {
-                if (c == '"' && (i == 0 || arrayContent.charAt(i - 1) != '\\')) {
-                    inString = false;
+                if (c != '\\') {
+                    sb.append(c);
+                    continue;
                 }
-            }
-        }
-        
-        // Add the last element
-        if (start < arrayContent.length()) {
-            elements.add(arrayContent.substring(start).trim());
-        }
-        
-        return elements.toArray(new String[0]);
-    }
-
-    private static int findStringEnd(String json, int start) {
-        for (int i = start; i < json.length(); i++) {
-            if (json.charAt(i) == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static int findValueEnd(String json, int start) {
-        int braceCount = 0;
-        int bracketCount = 0;
-        boolean inString = false;
-        
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-            
-            if (!inString) {
-                if (c == '"') {
-                    inString = true;
-                } else if (c == '{') {
-                    braceCount++;
-                } else if (c == '}') {
-                    if (braceCount > 0) {
-                        braceCount--;
-                    } else {
-                        return i;
+                char escaped = next();
+                switch (escaped) {
+                    case '"' -> sb.append('"');
+                    case '\\' -> sb.append('\\');
+                    case '/' -> sb.append('/');
+                    case 'b' -> sb.append('\b');
+                    case 'f' -> sb.append('\f');
+                    case 'n' -> sb.append('\n');
+                    case 'r' -> sb.append('\r');
+                    case 't' -> sb.append('\t');
+                    case 'u' -> {
+                        if (pos + 4 > source.length()) {
+                            throw error("Truncated unicode escape");
+                        }
+                        sb.append((char) Integer.parseInt(source.substring(pos, pos + 4), 16));
+                        pos += 4;
                     }
-                } else if (c == '[') {
-                    bracketCount++;
-                } else if (c == ']') {
-                    if (bracketCount > 0) {
-                        bracketCount--;
-                    } else {
-                        return i;
-                    }
-                } else if (c == ',' && braceCount == 0 && bracketCount == 0) {
-                    return i;
-                }
-            } else {
-                if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                    inString = false;
+                    default -> throw error("Invalid escape sequence \\" + escaped);
                 }
             }
         }
-        
-        return json.length();
-    }
 
-    private static int findArrayEnd(String json, int start) {
-        int bracketCount = 1;
-        boolean inString = false;
-        
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-            
-            if (!inString) {
-                if (c == '"') {
-                    inString = true;
-                } else if (c == '[') {
-                    bracketCount++;
-                } else if (c == ']') {
-                    bracketCount--;
-                    if (bracketCount == 0) {
-                        return i;
-                    }
+        private Object readNumber() {
+            int start = pos;
+            if (peek() == '-' || peek() == '+') {
+                pos++;
+            }
+            boolean fractional = false;
+            while (pos < source.length()) {
+                char c = source.charAt(pos);
+                if (c >= '0' && c <= '9') {
+                    pos++;
+                } else if (c == '.' || c == 'e' || c == 'E' || c == '-' || c == '+') {
+                    fractional = fractional || c == '.' || c == 'e' || c == 'E';
+                    pos++;
+                } else {
+                    break;
                 }
-            } else {
-                if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\')) {
-                    inString = false;
+            }
+            String text = source.substring(start, pos);
+            if (text.isEmpty()) {
+                throw error("Invalid number");
+            }
+            try {
+                if (fractional) {
+                    return Double.valueOf(text);
+                }
+                long value = Long.parseLong(text);
+                return value;
+            } catch (NumberFormatException e) {
+                try {
+                    return Double.valueOf(text);
+                } catch (NumberFormatException ignored) {
+                    throw error("Invalid number: " + text);
                 }
             }
         }
-        
-        return -1;
+
+        private Object readLiteral(String literal, Object value) {
+            if (!source.startsWith(literal, pos)) {
+                throw error("Invalid literal");
+            }
+            pos += literal.length();
+            return value;
+        }
+
+        private void skipWhitespace() {
+            while (pos < source.length() && Character.isWhitespace(source.charAt(pos))) {
+                pos++;
+            }
+        }
+
+        private char peek() {
+            return pos < source.length() ? source.charAt(pos) : '\0';
+        }
+
+        private char next() {
+            if (pos >= source.length()) {
+                throw error("Unexpected end of input");
+            }
+            return source.charAt(pos++);
+        }
+
+        private void expect(char expected) {
+            if (next() != expected) {
+                throw error("Expected '" + expected + "'");
+            }
+        }
+
+        private GroqSerializationException error(String message) {
+            return GroqSerializationException.invalidResponseFormat(message + " at offset " + pos);
+        }
     }
 }

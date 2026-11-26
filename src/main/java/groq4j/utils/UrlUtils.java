@@ -69,6 +69,18 @@ public final class UrlUtils {
         return buildUrl(baseUrl, Constants.AUDIO_SPEECH);
     }
 
+    public static String buildResponsesUrl(String baseUrl) {
+        return buildUrl(baseUrl, Constants.RESPONSES);
+    }
+
+    public static String buildEmbeddingsUrl(String baseUrl) {
+        return buildUrl(baseUrl, Constants.EMBEDDINGS);
+    }
+
+    public static String buildRerankingUrl(String baseUrl) {
+        return buildUrl(baseUrl, Constants.RERANKING);
+    }
+
     public static String buildModelsUrl(String baseUrl) {
         return buildUrl(baseUrl, Constants.MODELS);
     }

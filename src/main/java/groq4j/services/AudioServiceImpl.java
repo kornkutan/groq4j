@@ -4,9 +4,12 @@ import groq4j.builders.SpeechRequestBuilder;
 import groq4j.builders.TranscriptionRequestBuilder;
 import groq4j.builders.TranslationRequestBuilder;
 import groq4j.enums.HttpMethod;
+import groq4j.exceptions.GroqSerializationException;
 import groq4j.models.audio.SpeechRequest;
 import groq4j.models.audio.TranscriptionRequest;
 import groq4j.models.audio.TranscriptionResponse;
+import groq4j.models.audio.TranscriptionSegment;
+import groq4j.models.audio.TranscriptionWord;
 import groq4j.models.audio.TranslationRequest;
 import groq4j.models.audio.TranslationResponse;
 import groq4j.models.common.XGroq;
@@ -14,301 +17,265 @@ import groq4j.utils.Constants;
 import groq4j.utils.FileUtils;
 import groq4j.utils.HttpUtils;
 import groq4j.utils.JsonUtils;
-import groq4j.utils.ResponseParser;
 import groq4j.utils.UrlUtils;
 import groq4j.utils.ValidationUtils;
 
 import java.net.http.HttpClient;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
-/**
- * Implementation of AudioService that communicates with the Groq API.
- * 
- * Handles audio transcription, translation, and speech synthesis operations
- * with support for both file upload and URL-based audio processing.
- */
+/** Transcription, translation and speech synthesis. */
 public class AudioServiceImpl implements AudioService {
     private final HttpClient httpClient;
     private final String apiKey;
-    private final boolean ownsHttpClient;
 
-    /**
-     * Creates AudioService with default HttpClient (convenient for quick usage).
-     * Uses sensible defaults but less flexible than providing your own HttpClient.
-     */
     public AudioServiceImpl(String apiKey) {
         this.httpClient = HttpUtils.createHttpClient();
         this.apiKey = apiKey;
-        this.ownsHttpClient = true;
-        
         ValidationUtils.validateApiKey(apiKey);
     }
 
-    /**
-     * Creates AudioService with custom HttpClient (recommended for robust production deployments).
-     * Allows full control over HTTP configuration and enables testing with mocked clients.
-     */
     public AudioServiceImpl(HttpClient httpClient, String apiKey) {
+        ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.httpClient = httpClient;
         this.apiKey = apiKey;
-        this.ownsHttpClient = false;
-
         ValidationUtils.validateApiKey(apiKey);
     }
 
-    /**
-     * Static factory method for creating AudioService with custom HttpClient.
-     * Recommended for production use and testing.
-     */
     public static AudioService create(HttpClient httpClient, String apiKey) {
         return new AudioServiceImpl(httpClient, apiKey);
     }
-    
-    /**
-     * Static factory method for creating AudioService with default settings.
-     * Convenient for quick prototyping and simple use cases.
-     */
+
     public static AudioService create(String apiKey) {
         return new AudioServiceImpl(apiKey);
     }
-    
+
     @Override
     public TranscriptionResponse createTranscription(TranscriptionRequest request) {
         ValidationUtils.requireNonNull(request, "request");
-        
-        // Build the request (multipart for file, JSON for URL)
+
         if (request.hasFile()) {
-            return createTranscriptionWithFile(request);
-        } else if (request.hasUrl()) {
-            return createTranscriptionWithUrl(request);
-        } else {
-            throw new IllegalArgumentException("Either file or URL must be provided");
+            var httpRequest = HttpUtils.createMultipartRequest(
+                UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL), apiKey, transcriptionForm(request));
+            return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
+                    .thenApply(this::parseTranscriptionResponse));
         }
+
+        var httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            JsonUtils.toJsonString(transcriptionBody(request)));
+        return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
+                .thenApply(this::parseTranscriptionResponse));
     }
-    
+
     @Override
     public TranslationResponse createTranslation(TranslationRequest request) {
         ValidationUtils.requireNonNull(request, "request");
-        
-        // Build the request (multipart for file, JSON for URL)
+
         if (request.hasFile()) {
-            return createTranslationWithFile(request);
-        } else if (request.hasUrl()) {
-            return createTranslationWithUrl(request);
-        } else {
-            throw new IllegalArgumentException("Either file or URL must be provided");
+            var httpRequest = HttpUtils.createMultipartRequest(
+                UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL), apiKey, translationForm(request));
+            return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
+                    .thenApply(this::parseTranslationResponse));
         }
+
+        var httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            JsonUtils.toJsonString(translationBody(request)));
+        return HttpUtils.await(HttpUtils.executeRequest(httpClient, httpRequest)
+                .thenApply(this::parseTranslationResponse));
     }
-    
+
     @Override
     public byte[] createSpeech(SpeechRequest request) {
         ValidationUtils.requireNonNull(request, "request");
-        
-        String requestJson = buildSpeechRequestJson(request);
 
-        String url = UrlUtils.buildAudioSpeechUrl(Constants.BASE_URL);
-        var httpRequest = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.POST, requestJson);
-        
-        return HttpUtils.executeRequestForBytes(httpClient, httpRequest)
-            .join(); // Block for synchronous response
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", request.model());
+        body.put("input", request.input());
+        body.put("voice", request.voice());
+        request.responseFormat().ifPresent(v -> body.put("response_format", v.getValue()));
+        request.sampleRate().ifPresent(v -> body.put("sample_rate", v.getValue()));
+        request.speed().ifPresent(v -> body.put("speed", v));
+
+        var httpRequest = HttpUtils.createJsonRequest(
+            UrlUtils.buildAudioSpeechUrl(Constants.BASE_URL), apiKey, HttpMethod.POST,
+            JsonUtils.toJsonString(body));
+
+        return HttpUtils.await(HttpUtils.executeRequestForBytes(httpClient, httpRequest));
     }
-    
+
     @Override
     public TranscriptionResponse simpleTranscription(String model, byte[] audioData, String filename) {
         ValidationUtils.validateModel(model);
         ValidationUtils.requireNonNull(audioData, "audioData");
-        
+        ValidationUtils.validateAudioFileSize(audioData);
         if (filename != null && !filename.isEmpty()) {
             FileUtils.validateAudioFile(audioData, filename);
         }
-        
-        var request = TranscriptionRequestBuilder.withFile(model, audioData).build();
-        return createTranscription(request);
+        return createTranscription(TranscriptionRequestBuilder.withFile(model, audioData, filename).build());
     }
-    
+
     @Override
     public TranslationResponse simpleTranslation(String model, byte[] audioData, String filename) {
         ValidationUtils.validateModel(model);
         ValidationUtils.requireNonNull(audioData, "audioData");
-        
+        ValidationUtils.validateAudioFileSize(audioData);
         if (filename != null && !filename.isEmpty()) {
             FileUtils.validateAudioFile(audioData, filename);
         }
-        
-        var request = TranslationRequestBuilder.withFile(model, audioData).build();
-        return createTranslation(request);
+        return createTranslation(TranslationRequestBuilder.withFile(model, audioData, filename).build());
     }
-    
+
     @Override
     public byte[] simpleSpeech(String model, String text, String voice) {
         ValidationUtils.validateModel(model);
         ValidationUtils.requireNonNull(text, "text");
         ValidationUtils.requireNonNull(voice, "voice");
-        
-        var request = SpeechRequestBuilder.create(model, text, voice).build();
-        return createSpeech(request);
+
+        return createSpeech(SpeechRequestBuilder.create(model, text, voice).build());
     }
-    
-    private TranscriptionResponse createTranscriptionWithFile(TranscriptionRequest request) {
-        Map<String, Object> formData = buildTranscriptionFormData(request);
-        
-        String url = UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL);
-        var httpRequest = HttpUtils.createMultipartRequest(url, apiKey, formData);
-        
-        return HttpUtils.executeRequest(httpClient, httpRequest)
-            .thenApply(this::parseTranscriptionResponse)
-            .join(); // Block for synchronous response
+
+    private Map<String, Object> transcriptionForm(TranscriptionRequest request) {
+        var form = new LinkedHashMap<String, Object>();
+        form.put("model", request.model());
+        form.put("file", toFormFile(request.file().orElseThrow(), request.filename().orElse(null)));
+        request.language().ifPresent(v -> form.put("language", v));
+        request.prompt().ifPresent(v -> form.put("prompt", v));
+        request.responseFormat().ifPresent(v -> form.put("response_format", v.getValue()));
+        request.temperature().ifPresent(v -> form.put("temperature", v.toString()));
+        request.timestampGranularities().ifPresent(v ->
+            form.put("timestamp_granularities[]", v.stream().map(g -> g.getValue()).toList()));
+        return form;
     }
-    
-    private TranscriptionResponse createTranscriptionWithUrl(TranscriptionRequest request) {
-        String requestJson = buildTranscriptionRequestJson(request);
-        
-        String url = UrlUtils.buildAudioTranscriptionsUrl(Constants.BASE_URL);
-        var httpRequest = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.POST, requestJson);
-        
-        return HttpUtils.executeRequest(httpClient, httpRequest)
-            .thenApply(this::parseTranscriptionResponse)
-            .join(); // Block for synchronous response
+
+    private Map<String, Object> transcriptionBody(TranscriptionRequest request) {
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", request.model());
+        request.url().ifPresent(v -> body.put("url", v));
+        request.language().ifPresent(v -> body.put("language", v));
+        request.prompt().ifPresent(v -> body.put("prompt", v));
+        request.responseFormat().ifPresent(v -> body.put("response_format", v.getValue()));
+        request.temperature().ifPresent(v -> body.put("temperature", v));
+        request.timestampGranularities().ifPresent(v ->
+            body.put("timestamp_granularities", v.stream().map(g -> g.getValue()).toList()));
+        return body;
     }
-    
-    private TranslationResponse createTranslationWithFile(TranslationRequest request) {
-        Map<String, Object> formData = buildTranslationFormData(request);
-        
-        String url = UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL);
-        var httpRequest = HttpUtils.createMultipartRequest(url, apiKey, formData);
-        
-        return HttpUtils.executeRequest(httpClient, httpRequest)
-            .thenApply(this::parseTranslationResponse)
-            .join(); // Block for synchronous response
+
+    private Map<String, Object> translationForm(TranslationRequest request) {
+        var form = new LinkedHashMap<String, Object>();
+        form.put("model", request.model());
+        form.put("file", toFormFile(request.file().orElseThrow(), request.filename().orElse(null)));
+        request.prompt().ifPresent(v -> form.put("prompt", v));
+        request.responseFormat().ifPresent(v -> form.put("response_format", v.getValue()));
+        request.temperature().ifPresent(v -> form.put("temperature", v.toString()));
+        return form;
     }
-    
-    private TranslationResponse createTranslationWithUrl(TranslationRequest request) {
-        String requestJson = buildTranslationRequestJson(request);
-        
-        String url = UrlUtils.buildAudioTranslationsUrl(Constants.BASE_URL);
-        var httpRequest = HttpUtils.createJsonRequest(url, apiKey, HttpMethod.POST, requestJson);
-        
-        return HttpUtils.executeRequest(httpClient, httpRequest)
-            .thenApply(this::parseTranslationResponse)
-            .join(); // Block for synchronous response
+
+    private Map<String, Object> translationBody(TranslationRequest request) {
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", request.model());
+        request.url().ifPresent(v -> body.put("url", v));
+        request.prompt().ifPresent(v -> body.put("prompt", v));
+        request.responseFormat().ifPresent(v -> body.put("response_format", v.getValue()));
+        request.temperature().ifPresent(v -> body.put("temperature", v));
+        return body;
     }
-    
-    private Map<String, Object> buildTranscriptionFormData(TranscriptionRequest request) {
-        var formData = new HashMap<String, Object>();
-        
-        formData.put("model", request.model());
-        if (request.file().isPresent()) {
-            formData.put("file", request.file().get());
-        }
-        
-        request.language().ifPresent(lang -> formData.put("language", lang));
-        request.prompt().ifPresent(prompt -> formData.put("prompt", prompt));
-        request.responseFormat().ifPresent(format -> formData.put("response_format", format.getValue()));
-        request.temperature().ifPresent(temp -> formData.put("temperature", temp.toString()));
-        
-        if (request.timestampGranularities().isPresent() && !request.timestampGranularities().get().isEmpty()) {
-            var granularities = request.timestampGranularities().get().stream()
-                .map(tg -> tg.getValue())
-                .toList();
-            formData.put("timestamp_granularities", String.join(",", granularities));
-        }
-        
-        return formData;
+
+    private HttpUtils.FormFile toFormFile(byte[] data, String filename) {
+        String resolvedName = filename == null || filename.isEmpty() ? "audio.wav" : filename;
+        return new HttpUtils.FormFile(data, resolvedName, FileUtils.guessMimeType(resolvedName));
     }
-    
-    private String buildTranscriptionRequestJson(TranscriptionRequest request) {
-        var requestMap = new HashMap<String, Object>();
-        
-        requestMap.put("model", request.model());
-        request.url().ifPresent(url -> requestMap.put("url", url));
-        
-        request.language().ifPresent(lang -> requestMap.put("language", lang));
-        request.prompt().ifPresent(prompt -> requestMap.put("prompt", prompt));
-        request.responseFormat().ifPresent(format -> requestMap.put("response_format", format.getValue()));
-        request.temperature().ifPresent(temp -> requestMap.put("temperature", temp));
-        
-        if (request.timestampGranularities().isPresent() && !request.timestampGranularities().get().isEmpty()) {
-            var granularities = request.timestampGranularities().get().stream()
-                .map(tg -> tg.getValue())
-                .toList();
-            requestMap.put("timestamp_granularities", granularities);
-        }
-        
-        return JsonUtils.toJsonString(requestMap);
-    }
-    
-    private Map<String, Object> buildTranslationFormData(TranslationRequest request) {
-        var formData = new HashMap<String, Object>();
-        
-        formData.put("model", request.model());
-        if (request.file().isPresent()) {
-            formData.put("file", request.file().get());
-        }
-        
-        request.prompt().ifPresent(prompt -> formData.put("prompt", prompt));
-        request.responseFormat().ifPresent(format -> formData.put("response_format", format.getValue()));
-        request.temperature().ifPresent(temp -> formData.put("temperature", temp.toString()));
-        
-        return formData;
-    }
-    
-    private String buildTranslationRequestJson(TranslationRequest request) {
-        var requestMap = new HashMap<String, Object>();
-        
-        requestMap.put("model", request.model());
-        request.url().ifPresent(url -> requestMap.put("url", url));
-        
-        request.prompt().ifPresent(prompt -> requestMap.put("prompt", prompt));
-        request.responseFormat().ifPresent(format -> requestMap.put("response_format", format.getValue()));
-        request.temperature().ifPresent(temp -> requestMap.put("temperature", temp));
-        
-        return JsonUtils.toJsonString(requestMap);
-    }
-    
-    private String buildSpeechRequestJson(SpeechRequest request) {
-        var requestMap = new HashMap<String, Object>();
-        
-        requestMap.put("model", request.model());
-        requestMap.put("input", request.input());
-        requestMap.put("voice", request.voice());
-        
-        request.responseFormat().ifPresent(format -> requestMap.put("response_format", format.getValue()));
-        request.sampleRate().ifPresent(rate -> requestMap.put("sample_rate", rate.getValue()));
-        request.speed().ifPresent(speed -> requestMap.put("speed", speed));
-        
-        return JsonUtils.toJsonString(requestMap);
-    }
-    
-    private TranscriptionResponse parseTranscriptionResponse(String responseJson) {
+
+    TranscriptionResponse parseTranscriptionResponse(String json) {
         try {
-            String text = ResponseParser.getRequiredString(responseJson, "text");
-            
-            var xGroq = ResponseParser.getOptionalString(responseJson, "x_groq")
-                .map(xGroqJson -> new XGroq(
-                    ResponseParser.getRequiredString(xGroqJson, "id")
-                ));
-            
-            return new TranscriptionResponse(text, xGroq);
-            
+            Map<String, Object> root = JsonUtils.parseObject(json);
+            return new TranscriptionResponse(
+                JsonUtils.stringValue(root.get("text")),
+                parseXGroq(root.get("x_groq")),
+                Optional.ofNullable(JsonUtils.stringValue(root.get("language"))),
+                Optional.ofNullable(JsonUtils.doubleValue(root.get("duration"))),
+                parseSegments(root.get("segments")),
+                parseWords(root.get("words")));
+        } catch (GroqSerializationException e) {
+            throw e;
         } catch (Exception e) {
-            throw new groq4j.exceptions.GroqSerializationException("Failed to parse transcription response: " + e.getMessage(), e);
+            throw new GroqSerializationException("Failed to parse transcription response: " + e.getMessage(), e);
         }
     }
-    
-    private TranslationResponse parseTranslationResponse(String responseJson) {
+
+    TranslationResponse parseTranslationResponse(String json) {
         try {
-            String text = ResponseParser.getRequiredString(responseJson, "text");
-            
-            var xGroq = ResponseParser.getOptionalString(responseJson, "x_groq")
-                .map(xGroqJson -> new XGroq(
-                    ResponseParser.getRequiredString(xGroqJson, "id")
-                ));
-            
-            return new TranslationResponse(text, xGroq);
-            
+            Map<String, Object> root = JsonUtils.parseObject(json);
+            return new TranslationResponse(
+                JsonUtils.stringValue(root.get("text")),
+                parseXGroq(root.get("x_groq")),
+                Optional.ofNullable(JsonUtils.stringValue(root.get("language"))),
+                Optional.ofNullable(JsonUtils.doubleValue(root.get("duration"))),
+                parseSegments(root.get("segments")));
+        } catch (GroqSerializationException e) {
+            throw e;
         } catch (Exception e) {
-            throw new groq4j.exceptions.GroqSerializationException("Failed to parse translation response: " + e.getMessage(), e);
+            throw new GroqSerializationException("Failed to parse translation response: " + e.getMessage(), e);
         }
+    }
+
+    private List<TranscriptionSegment> parseSegments(Object rawSegments) {
+        List<TranscriptionSegment> segments = new ArrayList<>();
+        for (Object raw : JsonUtils.asList(rawSegments)) {
+            Map<String, Object> segment = JsonUtils.asMap(raw);
+            List<Integer> tokens = new ArrayList<>();
+            for (Object token : JsonUtils.asList(segment.get("tokens"))) {
+                Double value = JsonUtils.doubleValue(token);
+                if (value != null) {
+                    tokens.add(value.intValue());
+                }
+            }
+            segments.add(new TranscriptionSegment(
+                intValue(segment.get("id")),
+                doubleValue(segment.get("start")),
+                doubleValue(segment.get("end")),
+                JsonUtils.stringValue(segment.get("text")),
+                doubleValue(segment.get("avg_logprob")),
+                doubleValue(segment.get("compression_ratio")),
+                doubleValue(segment.get("no_speech_prob")),
+                intValue(segment.get("seek")),
+                doubleValue(segment.get("temperature")),
+                tokens));
+        }
+        return segments;
+    }
+
+    private List<TranscriptionWord> parseWords(Object rawWords) {
+        List<TranscriptionWord> words = new ArrayList<>();
+        for (Object raw : JsonUtils.asList(rawWords)) {
+            Map<String, Object> word = JsonUtils.asMap(raw);
+            words.add(new TranscriptionWord(
+                JsonUtils.stringValue(word.get("word")),
+                doubleValue(word.get("start")),
+                doubleValue(word.get("end"))));
+        }
+        return words;
+    }
+
+    private Optional<XGroq> parseXGroq(Object rawXGroq) {
+        if (!(rawXGroq instanceof Map<?, ?>)) {
+            return Optional.empty();
+        }
+        String id = JsonUtils.stringValue(JsonUtils.asMap(rawXGroq).get("id"));
+        return id == null ? Optional.empty() : Optional.of(new XGroq(id));
+    }
+
+    private int intValue(Object value) {
+        Double number = JsonUtils.doubleValue(value);
+        return number == null ? 0 : number.intValue();
+    }
+
+    private double doubleValue(Object value) {
+        Double number = JsonUtils.doubleValue(value);
+        return number == null ? 0.0 : number;
     }
 }

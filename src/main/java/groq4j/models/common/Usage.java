@@ -1,5 +1,11 @@
 package groq4j.models.common;
 
+import java.util.Optional;
+
+/**
+ * Token accounting for a completion. Groq adds timing fields on top of the OpenAI shape, plus
+ * optional cache and reasoning token breakdowns.
+ */
 public record Usage(
     double queueTime,
     int promptTokens,
@@ -7,18 +13,15 @@ public record Usage(
     int completionTokens,
     double completionTime,
     int totalTokens,
-    double totalTime
+    double totalTime,
+    Optional<Integer> cachedTokens,
+    Optional<Integer> reasoningTokens
 ) {
-    public static Usage fromJson(String json) {
-        return new Usage(
-            groq4j.utils.ResponseParser.getOptionalDouble(json, "queue_time").orElse(0.0),
-            groq4j.utils.ResponseParser.getOptionalInt(json, "prompt_tokens").orElse(0),
-            groq4j.utils.ResponseParser.getOptionalDouble(json, "prompt_time").orElse(0.0),
-            groq4j.utils.ResponseParser.getOptionalInt(json, "completion_tokens").orElse(0),
-            groq4j.utils.ResponseParser.getOptionalDouble(json, "completion_time").orElse(0.0),
-            groq4j.utils.ResponseParser.getOptionalInt(json, "total_tokens").orElse(0),
-            groq4j.utils.ResponseParser.getOptionalDouble(json, "total_time").orElse(0.0)
-        );
+
+    public Usage(double queueTime, int promptTokens, double promptTime, int completionTokens,
+                 double completionTime, int totalTokens, double totalTime) {
+        this(queueTime, promptTokens, promptTime, completionTokens, completionTime, totalTokens, totalTime,
+            Optional.empty(), Optional.empty());
     }
 
     public double getCostEstimate(double inputTokenPrice, double outputTokenPrice) {

@@ -70,7 +70,7 @@ class ChatServiceTest extends BaseServiceTest {
         assertEquals(getDefaultModel(), response.model(), "Model should match request");
         assertFalse(response.choices().isEmpty(), "Response should have at least one choice");
 
-        var usage = response.usage();
+        var usage = response.usage().orElseThrow();
         assertTrue(usage.totalTokens() > 0, "Should have consumed tokens");
 
         logTestProgress("Simple chat with system prompt test passed");
@@ -120,7 +120,7 @@ class ChatServiceTest extends BaseServiceTest {
         assertEquals(getDefaultModel(), response.model(), "Model should match request");
         assertFalse(response.choices().isEmpty(), "Response should have at least one choice");
 
-        var usage = response.usage();
+        var usage = response.usage().orElseThrow();
         assertTrue(usage.promptTokens() > 0, "Should have consumed prompt tokens");
         assertTrue(usage.completionTokens() > 0, "Should have generated completion tokens");
 

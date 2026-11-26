@@ -14,6 +14,9 @@ import java.util.Optional;
  * audio format, sample rate, and speech speed.
  */
 public class SpeechRequestBuilder {
+    public static final String DEFAULT_MODEL = "canopylabs/orpheus-v1-english";
+    public static final String DEFAULT_VOICE = "troy";
+
     private String model;
     private String input;
     private String voice;
@@ -31,6 +34,10 @@ public class SpeechRequestBuilder {
      * @param model the model to use for speech synthesis (required)
      * @return new builder instance
      */
+    public static SpeechRequestBuilder create() {
+        return create(DEFAULT_MODEL);
+    }
+
     public static SpeechRequestBuilder create(String model) {
         var builder = new SpeechRequestBuilder();
         builder.model = model;
@@ -70,6 +77,10 @@ public class SpeechRequestBuilder {
      * @param voice the voice identifier
      * @return this builder for method chaining
      */
+    public SpeechRequestBuilder voice(groq4j.enums.TtsVoice voice) {
+        return voice(voice.getValue());
+    }
+
     public SpeechRequestBuilder voice(String voice) {
         ValidationUtils.requireNonNull(voice, "voice");
         if (voice.trim().isEmpty()) {

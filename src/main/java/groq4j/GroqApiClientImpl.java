@@ -1,84 +1,61 @@
 package groq4j;
 
-import groq4j.services.*;
+import groq4j.services.AudioService;
+import groq4j.services.AudioServiceImpl;
+import groq4j.services.BatchService;
+import groq4j.services.BatchServiceImpl;
+import groq4j.services.ChatService;
+import groq4j.services.ChatServiceImpl;
+import groq4j.services.EmbeddingsService;
+import groq4j.services.EmbeddingsServiceImpl;
+import groq4j.services.FilesService;
+import groq4j.services.FilesServiceImpl;
+import groq4j.services.ModelsService;
+import groq4j.services.ModelsServiceImpl;
+import groq4j.services.RerankingService;
+import groq4j.services.RerankingServiceImpl;
+import groq4j.services.ResponsesService;
+import groq4j.services.ResponsesServiceImpl;
 import groq4j.utils.HttpUtils;
 import groq4j.utils.ValidationUtils;
 
 import java.net.http.HttpClient;
 
 /**
- * Main implementation of the Groq API client providing unified access to all Groq services.
- * This implementation offers both legacy async methods and modern service access.
- * 
- * <p>Example usage:
- * <pre>{@code
- * // Create client
- * var client = GroqApiClient.create("your-api-key");
- * 
- * // Use modern service APIs
- * var response = client.chat().simple("llama-3.1-8b-instant", "Hello!");
- * var models = client.models().listModels();
- * var transcription = client.audio().transcribe(audioFile, "whisper-large-v3");
- * }</pre>
+ * Default client. Services are created on first access, so constructing a client costs nothing
+ * beyond the API key check.
  */
 public class GroqApiClientImpl implements GroqApiClient {
 
     private final String apiKey;
     private final HttpClient httpClient;
-    private final boolean ownsHttpClient;
-    
-    // Service instances (lazy initialization)
+
     private ChatService chatService;
+    private ResponsesService responsesService;
+    private EmbeddingsService embeddingsService;
+    private RerankingService rerankingService;
     private AudioService audioService;
     private ModelsService modelsService;
     private BatchService batchService;
     private FilesService filesService;
 
-    /**
-     * Creates GroqApiClient with the default HttpClient configuration.
-     * Convenient for most use cases.
-     * 
-     * @param apiKey The Groq API key for authentication
-     */
     public GroqApiClientImpl(String apiKey) {
         ValidationUtils.validateApiKey(apiKey);
         this.apiKey = apiKey;
         this.httpClient = HttpUtils.createHttpClient();
-        this.ownsHttpClient = true;
     }
 
-    /**
-     * Creates GroqApiClient with custom HttpClient.
-     * Recommended for production use and testing with custom configurations.
-     * 
-     * @param httpClient Custom HttpClient instance
-     * @param apiKey The Groq API key for authentication
-     */
     public GroqApiClientImpl(HttpClient httpClient, String apiKey) {
         ValidationUtils.validateApiKey(apiKey);
         ValidationUtils.requireNonNull(httpClient, "httpClient");
         this.apiKey = apiKey;
         this.httpClient = httpClient;
-        this.ownsHttpClient = false;
     }
 
-    /**
-     * Static factory method for creating GroqApiClient with default settings.
-     * 
-     * @param apiKey The Groq API key for authentication
-     * @return New GroqApiClient instance
-     */
     public static GroqApiClient create(String apiKey) {
         return new GroqApiClientImpl(apiKey);
     }
 
-    /**
-     * Static factory method for creating GroqApiClient with custom HttpClient.
-     * 
-     * @param httpClient Custom HttpClient instance
-     * @param apiKey The Groq API key for authentication
-     * @return New GroqApiClient instance
-     */
     public static GroqApiClient create(HttpClient httpClient, String apiKey) {
         return new GroqApiClientImpl(httpClient, apiKey);
     }
@@ -89,6 +66,30 @@ public class GroqApiClientImpl implements GroqApiClient {
             chatService = new ChatServiceImpl(httpClient, apiKey);
         }
         return chatService;
+    }
+
+    @Override
+    public ResponsesService responses() {
+        if (responsesService == null) {
+            responsesService = new ResponsesServiceImpl(httpClient, apiKey);
+        }
+        return responsesService;
+    }
+
+    @Override
+    public EmbeddingsService embeddings() {
+        if (embeddingsService == null) {
+            embeddingsService = new EmbeddingsServiceImpl(httpClient, apiKey);
+        }
+        return embeddingsService;
+    }
+
+    @Override
+    public RerankingService reranking() {
+        if (rerankingService == null) {
+            rerankingService = new RerankingServiceImpl(httpClient, apiKey);
+        }
+        return rerankingService;
     }
 
     @Override

@@ -2,13 +2,13 @@ package groq4j.models.common;
 
 import java.util.Optional;
 
-public record XGroq(String id) {
-    public static Optional<XGroq> fromJson(String json, String path) {
-        return groq4j.utils.ResponseParser.getOptionalString(json, path + ".id")
-            .map(XGroq::new);
-    }
+/**
+ * Groq specific metadata. The request id is sent on every response and is the value to quote
+ * when contacting support; the seed appears when one was requested.
+ */
+public record XGroq(String id, Optional<Integer> seed) {
 
-    public static Optional<XGroq> fromJson(String json) {
-        return fromJson(json, "x_groq");
+    public XGroq(String id) {
+        this(id, Optional.empty());
     }
 }

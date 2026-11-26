@@ -2,12 +2,20 @@ package groq4j.utils;
 
 import groq4j.enums.HttpMethod;
 import groq4j.exceptions.GroqApiException;
+import groq4j.exceptions.GroqFailedDependencyException;
 import groq4j.exceptions.GroqAuthenticationException;
 import groq4j.exceptions.GroqBadRequestException;
+import groq4j.exceptions.GroqForbiddenException;
 import groq4j.exceptions.GroqNetworkException;
+import groq4j.exceptions.GroqNotFoundException;
 import groq4j.exceptions.GroqRateLimitException;
+import groq4j.exceptions.GroqRequestTooLargeException;
 import groq4j.exceptions.GroqServerException;
+import groq4j.exceptions.GroqUnprocessableEntityException;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,10 +24,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.stream.Stream;
 
 public final class HttpUtils {
     private HttpUtils() {
         // Prevent instantiation
+    }
+
+    /** A binary form part with an explicit filename and content type. */
+    public record FormFile(byte[] data, String filename, String contentType) {
     }
 
     public static HttpClient createHttpClient() {
@@ -48,10 +62,19 @@ public final class HttpUtils {
         };
     }
 
+    public static HttpRequest createStreamingRequest(String url, String apiKey, String jsonBody) {
+        return createRequestBuilder(url, apiKey)
+            .timeout(Duration.ofSeconds(Constants.DEFAULT_STREAM_READ_TIMEOUT))
+            .header(Constants.CONTENT_TYPE_HEADER, Constants.APPLICATION_JSON)
+            .header(Constants.ACCEPT_HEADER, Constants.TEXT_EVENT_STREAM)
+            .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+            .build();
+    }
+
     public static HttpRequest createMultipartRequest(String url, String apiKey, Map<String, Object> formData) {
-        String boundary = "----groq4j-boundary-" + System.currentTimeMillis();
+        String boundary = "----groq4j-boundary-" + System.nanoTime();
         byte[] multipartBody = buildMultipartBodyBytes(formData, boundary);
-        
+
         return createRequestBuilder(url, apiKey)
             .header(Constants.CONTENT_TYPE_HEADER, Constants.MULTIPART_FORM_DATA + "; boundary=" + boundary)
             .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody))
@@ -61,11 +84,11 @@ public final class HttpUtils {
     /**
      * Creates a multipart request for file uploads with explicit filename and content type.
      */
-    public static HttpRequest createFileUploadRequest(String url, String apiKey, byte[] fileData, 
+    public static HttpRequest createFileUploadRequest(String url, String apiKey, byte[] fileData,
                                                     String filename, String purpose) {
-        String boundary = "----groq4j-boundary-" + System.currentTimeMillis();
+        String boundary = "----groq4j-boundary-" + System.nanoTime();
         byte[] multipartBody = buildFileUploadBodyBytes(fileData, filename, purpose, boundary);
-        
+
         return createRequestBuilder(url, apiKey)
             .header(Constants.CONTENT_TYPE_HEADER, Constants.MULTIPART_FORM_DATA + "; boundary=" + boundary)
             .POST(HttpRequest.BodyPublishers.ofByteArray(multipartBody))
@@ -73,58 +96,66 @@ public final class HttpUtils {
     }
 
     private static byte[] buildMultipartBodyBytes(Map<String, Object> formData, String boundary) {
-        var baos = new java.io.ByteArrayOutputStream();
-        
+        var baos = new ByteArrayOutputStream();
+
         try {
             for (var entry : formData.entrySet()) {
-                baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                
-                if (entry.getValue() instanceof byte[] fileData) {
-                    // For file data, determine proper filename and content type
-                    String filename = "audio.wav"; // Default filename
-                    String contentType = "audio/wav"; // Default content type
-
-                    baos.write(("Content-Disposition: form-data; name=\"" + entry.getKey() + "\"; filename=\"" + filename + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-                    baos.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-                    baos.write(fileData);
-                } else {
-                    baos.write(("Content-Disposition: form-data; name=\"" + entry.getKey() + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-                    baos.write(entry.getValue().toString().getBytes(StandardCharsets.UTF_8));
+                Object value = entry.getValue();
+                if (value == null) {
+                    continue;
                 }
-                baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
+                if (value instanceof FormFile file) {
+                    writeFilePart(baos, entry.getKey(), file, boundary);
+                } else if (value instanceof byte[] data) {
+                    writeFilePart(baos, entry.getKey(),
+                        new FormFile(data, entry.getKey(), "application/octet-stream"), boundary);
+                } else if (value instanceof Iterable<?> values) {
+                    for (Object element : values) {
+                        if (element != null) {
+                            writeTextPart(baos, entry.getKey(), element.toString(), boundary);
+                        }
+                    }
+                } else {
+                    writeTextPart(baos, entry.getKey(), value.toString(), boundary);
+                }
             }
             baos.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-            
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Failed to build multipart body", e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to build multipart body", e);
         }
-        
+
         return baos.toByteArray();
     }
 
-    private static byte[] buildFileUploadBodyBytes(byte[] fileData, String filename, String purpose, String boundary) {
-        var baos = new java.io.ByteArrayOutputStream();
-        
-        try {
-            baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-            baos.write(("Content-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+    private static void writeTextPart(ByteArrayOutputStream baos, String name, String value, String boundary)
+            throws IOException {
+        baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(value.getBytes(StandardCharsets.UTF_8));
+        baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
 
-            String contentType = determineContentType(filename);
-            baos.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-            baos.write(fileData);
-            baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
-            
-            // Add purpose field
-            baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-            baos.write(("Content-Disposition: form-data; name=\"purpose\"\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-            baos.write(purpose.getBytes(StandardCharsets.UTF_8));
-            baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    private static void writeFilePart(ByteArrayOutputStream baos, String name, FormFile file, String boundary)
+            throws IOException {
+        baos.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(("Content-Disposition: form-data; name=\"" + name + "\"; filename=\""
+            + file.filename() + "\"\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(("Content-Type: " + file.contentType() + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        baos.write(file.data());
+        baos.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static byte[] buildFileUploadBodyBytes(byte[] fileData, String filename, String purpose, String boundary) {
+        var baos = new ByteArrayOutputStream();
+
+        try {
+            writeFilePart(baos, "file", new FormFile(fileData, filename, determineContentType(filename)), boundary);
+            writeTextPart(baos, "purpose", purpose, boundary);
             baos.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-            
-        } catch (java.io.IOException e) {
-            throw new RuntimeException("Failed to build file upload body", e);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to build file upload body", e);
         }
-        
+
         return baos.toByteArray();
     }
 
@@ -132,7 +163,7 @@ public final class HttpUtils {
         if (filename == null || filename.isEmpty()) {
             return "application/octet-stream";
         }
-        
+
         String extension = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
         return switch (extension) {
             case "jsonl" -> "application/jsonl";
@@ -143,6 +174,22 @@ public final class HttpUtils {
         };
     }
 
+    /**
+     * Waits for a request and rethrows the real failure. {@link CompletableFuture#join()} wraps
+     * everything in a {@link java.util.concurrent.CompletionException}, which hides the typed
+     * exceptions this library promises to throw.
+     */
+    public static <T> T await(CompletableFuture<T> future) {
+        try {
+            return future.join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof RuntimeException cause) {
+                throw cause;
+            }
+            throw e;
+        }
+    }
+
     public static CompletableFuture<String> executeRequest(HttpClient client, HttpRequest request) {
         return client.sendAsync(request, HttpResponse.BodyHandlers.ofString())
             .thenApply(response -> {
@@ -150,8 +197,8 @@ public final class HttpUtils {
                 return response.body();
             })
             .exceptionally(throwable -> {
-                if (throwable.getCause() instanceof GroqApiException) {
-                    throw (GroqApiException) throwable.getCause();
+                if (throwable.getCause() instanceof GroqApiException apiException) {
+                    throw apiException;
                 }
                 throw GroqNetworkException.connectionFailed("Request failed", throwable);
             });
@@ -164,44 +211,71 @@ public final class HttpUtils {
                 return response.body();
             })
             .exceptionally(throwable -> {
-                if (throwable.getCause() instanceof GroqApiException) {
-                    throw (GroqApiException) throwable.getCause();
+                if (throwable.getCause() instanceof GroqApiException apiException) {
+                    throw apiException;
                 }
                 throw GroqNetworkException.connectionFailed("Request failed", throwable);
             });
     }
 
+    /**
+     * Opens a server-sent events response and returns its raw lines. The caller is responsible
+     * for closing the stream, which closes the underlying connection.
+     */
+    public static Stream<String> openEventStream(HttpClient client, HttpRequest request) {
+        try {
+            HttpResponse<Stream<String>> response = client.send(request, HttpResponse.BodyHandlers.ofLines());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String body = response.body().reduce("", (a, b) -> a + b);
+                throw toException(response.statusCode(), body, response);
+            }
+            return response.body();
+        } catch (IOException e) {
+            throw GroqNetworkException.connectionFailed("Stream request failed", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw GroqNetworkException.connectionFailed("Stream request interrupted", e);
+        }
+    }
+
     public static void handleHttpErrors(HttpResponse<?> response) {
         int statusCode = response.statusCode();
-        String body = response.body().toString();
-        
         if (statusCode >= 200 && statusCode < 300) {
-            return; // Success
+            return;
         }
-        
-        // Parse error details from the response body
+        Object body = response.body();
+        throw toException(statusCode, body == null ? "" : body.toString(), response);
+    }
+
+    private static GroqApiException toException(int statusCode, String body, HttpResponse<?> response) {
         String errorMessage = extractErrorMessage(body);
         String errorType = extractErrorType(body);
         String errorCode = extractErrorCode(body);
-        
-        switch (statusCode) {
-            case 400 -> throw new GroqBadRequestException(errorMessage, errorType, errorCode);
-            case 401 -> throw new GroqAuthenticationException(errorMessage, errorType, errorCode);
-            case 429 -> {
-                Integer retryAfter = extractRetryAfter(response);
-                throw new GroqRateLimitException(errorMessage, retryAfter);
-            }
-            case 500, 502, 503, 504 -> throw new GroqServerException(errorMessage, statusCode, errorType, errorCode);
-            default -> throw new GroqApiException(errorMessage, statusCode, errorType, errorCode);
-        }
+
+        return switch (statusCode) {
+            case 400 -> new GroqBadRequestException(errorMessage, errorType, errorCode);
+            case 401 -> new GroqAuthenticationException(errorMessage, errorType, errorCode);
+            case 403 -> new GroqForbiddenException(errorMessage, errorType, errorCode);
+            case 404 -> new GroqNotFoundException(errorMessage, errorType, errorCode);
+            case 413 -> new GroqRequestTooLargeException(errorMessage, errorType, errorCode);
+            case 422 -> new GroqUnprocessableEntityException(errorMessage, errorType, errorCode);
+            case 424 -> new GroqFailedDependencyException(errorMessage, errorType, errorCode);
+            case 429 -> new GroqRateLimitException(errorMessage, extractRetryAfter(response));
+            case 498 -> new GroqApiException(
+                "Flex tier capacity exceeded: " + errorMessage, statusCode, errorType, errorCode);
+            case 499 -> new GroqApiException(
+                "Request cancelled: " + errorMessage, statusCode, errorType, errorCode);
+            case 500, 502, 503, 504 -> new GroqServerException(errorMessage, statusCode, errorType, errorCode);
+            default -> new GroqApiException(errorMessage, statusCode, errorType, errorCode);
+        };
     }
 
     private static String extractErrorMessage(String responseBody) {
         try {
             String message = JsonUtils.extractStringValue(responseBody, "error.message");
-            return message != null ? message : "Unknown error occurred";
+            return message != null ? message : responseBody;
         } catch (Exception e) {
-            return "Failed to parse error message from response";
+            return responseBody.isEmpty() ? "Unknown error occurred" : responseBody;
         }
     }
 
@@ -222,7 +296,7 @@ public final class HttpUtils {
     }
 
     private static Integer extractRetryAfter(HttpResponse<?> response) {
-        return response.headers().firstValue("Retry-After")
+        return response.headers().firstValue(Constants.RETRY_AFTER_HEADER)
             .map(value -> {
                 try {
                     return Integer.parseInt(value);

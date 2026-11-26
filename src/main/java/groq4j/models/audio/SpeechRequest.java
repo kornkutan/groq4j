@@ -24,6 +24,11 @@ public record SpeechRequest(
             throw new IllegalArgumentException("voice cannot be null or empty");
         }
         
+        if (model.startsWith("canopylabs/orpheus") && input.length() > 200) {
+            throw new IllegalArgumentException(
+                "Orpheus models accept at most 200 characters of input, got " + input.length());
+        }
+
         speed.ifPresent(s -> {
             if (s < 0.5 || s > 5.0) {
                 throw new IllegalArgumentException("speed must be between 0.5 and 5.0");
@@ -43,6 +48,10 @@ public record SpeechRequest(
         return speed.isPresent();
     }
     
+    public static SpeechRequest orpheus(String input, String voice) {
+        return simple("canopylabs/orpheus-v1-english", input, voice);
+    }
+
     public static SpeechRequest simple(String model, String input, String voice) {
         return new SpeechRequest(
             model,

@@ -51,6 +51,9 @@ public abstract class BaseServiceTest {
         
         if (apiKey == null || apiKey.trim().isEmpty()) {
             apiKey = testProperties.getProperty(API_KEY_PROPERTY);
+            if (apiKey != null && (apiKey.trim().isEmpty() || apiKey.trim().equals("gsk_xxx"))) {
+                apiKey = null;
+            }
             if (apiKey != null && !apiKey.trim().isEmpty()) {
                 System.out.println("Using API key from application.properties");
             }

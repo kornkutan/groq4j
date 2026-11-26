@@ -1,7 +1,8 @@
 package groq4j.enums;
 
 public enum FilePurpose {
-    BATCH("batch");
+    BATCH("batch"),
+    BATCH_OUTPUT("batch_output");
 
     private final String value;
 

@@ -37,6 +37,40 @@ public record LogProbs(
     public static LogProbs withRefusal(List<TokenLogProb> content, List<TokenLogProb> refusal) {
         return new LogProbs(content, Optional.of(refusal));
     }
+
+    public static LogProbs fromMap(java.util.Map<String, Object> map) {
+        return new LogProbs(
+            parseTokens(map.get("content")),
+            Optional.of(parseTokens(map.get("refusal"))));
+    }
+
+    private static List<TokenLogProb> parseTokens(Object raw) {
+        List<TokenLogProb> tokens = new java.util.ArrayList<>();
+        for (Object element : groq4j.utils.JsonUtils.asList(raw)) {
+            java.util.Map<String, Object> token = groq4j.utils.JsonUtils.asMap(element);
+            List<Integer> bytes = new java.util.ArrayList<>();
+            for (Object b : groq4j.utils.JsonUtils.asList(token.get("bytes"))) {
+                Double value = groq4j.utils.JsonUtils.doubleValue(b);
+                if (value != null) {
+                    bytes.add(value.intValue());
+                }
+            }
+            List<TopLogProb> top = new java.util.ArrayList<>();
+            for (Object element2 : groq4j.utils.JsonUtils.asList(token.get("top_logprobs"))) {
+                java.util.Map<String, Object> topToken = groq4j.utils.JsonUtils.asMap(element2);
+                Double logprob = groq4j.utils.JsonUtils.doubleValue(topToken.get("logprob"));
+                top.add(TopLogProb.of(groq4j.utils.JsonUtils.stringValue(topToken.get("token")),
+                    logprob == null ? 0.0 : logprob));
+            }
+            Double logprob = groq4j.utils.JsonUtils.doubleValue(token.get("logprob"));
+            tokens.add(new TokenLogProb(
+                groq4j.utils.JsonUtils.stringValue(token.get("token")),
+                logprob == null ? 0.0 : logprob,
+                bytes.isEmpty() ? Optional.empty() : Optional.of(bytes),
+                top.isEmpty() ? Optional.empty() : Optional.of(top)));
+        }
+        return tokens;
+    }
     
     public record TokenLogProb(
         String token,

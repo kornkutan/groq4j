@@ -1,9 +1,21 @@
 package groq4j.enums;
 
+/**
+ * Processing tier for a request.
+ *
+ * <ul>
+ *   <li>{@code auto} picks the highest tier available within your rate limits.</li>
+ *   <li>{@code on_demand} is the default shared tier.</li>
+ *   <li>{@code flex} succeeds or fails fast, and can return status 498 when at capacity.</li>
+ *   <li>{@code performance} is the provisioned throughput tier.</li>
+ * </ul>
+ */
 public enum ServiceTier {
     AUTO("auto"),
     ON_DEMAND("on_demand"),
-    FLEX("flex");
+    FLEX("flex"),
+    PERFORMANCE("performance"),
+    DEFAULT("default");
 
     private final String value;
 

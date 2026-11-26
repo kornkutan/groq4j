@@ -21,6 +21,19 @@ public record ToolCall(
         return map;
     }
 
+    public static ToolCall fromMap(java.util.Map<String, Object> map) {
+        String id = groq4j.utils.JsonUtils.stringValue(map.get("id"));
+        String typeValue = groq4j.utils.JsonUtils.stringValue(map.get("type"));
+        java.util.Map<String, Object> function = groq4j.utils.JsonUtils.asMap(map.get("function"));
+        String name = groq4j.utils.JsonUtils.stringValue(function.get("name"));
+        String arguments = groq4j.utils.JsonUtils.stringValue(function.get("arguments"));
+        if (id == null || name == null) {
+            return null;
+        }
+        ToolType resolved = typeValue == null ? ToolType.FUNCTION : ToolType.fromValue(typeValue);
+        return new ToolCall(id, resolved, new FunctionCall(name, arguments == null ? "{}" : arguments));
+    }
+
     public static ToolCall fromJson(String json, String path) {
         String id = groq4j.utils.ResponseParser.getRequiredString(json, path + ".id");
         String typeStr = groq4j.utils.ResponseParser.getRequiredString(json, path + ".type");

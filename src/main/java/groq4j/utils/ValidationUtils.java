@@ -79,12 +79,8 @@ public final class ValidationUtils {
             if (tokens <= 0) {
                 throw GroqValidationException.invalidFieldValue("maxTokens", tokens, "must be positive");
             }
-            if (tokens > Constants.MAX_TOKENS_LIMIT) {
-                throw GroqValidationException.fieldOutOfRange("maxTokens", tokens, 1, Constants.MAX_TOKENS_LIMIT);
-            }
         });
     }
-
     public static void validateN(Optional<Integer> n) {
         n.ifPresent(value -> {
             if (value != 1) {
@@ -103,19 +99,23 @@ public final class ValidationUtils {
 
     public static void validateApiKey(String apiKey) {
         requireNonEmpty(apiKey, "apiKey");
-        if (!apiKey.startsWith("gsk_")) {
-            throw GroqValidationException.invalidFieldValue("apiKey", apiKey, "must start with 'gsk_'");
-        }
     }
 
     public static void validateModel(String model) {
         requireNonEmpty(model, "model");
     }
 
+    public static void validateAudioFileSize(byte[] fileData) {
+        requireNonNull(fileData, "fileData");
+        if (fileData.length > Constants.MAX_AUDIO_FILE_SIZE_BYTES) {
+            throw GroqValidationException.fieldOutOfRange("fileSize", fileData.length, 0, Constants.MAX_AUDIO_FILE_SIZE_BYTES);
+        }
+    }
+
     public static void validateFileSize(byte[] fileData) {
         requireNonNull(fileData, "fileData");
-        if (fileData.length > Constants.MAX_FILE_SIZE_BYTES) {
-            throw GroqValidationException.fieldOutOfRange("fileSize", fileData.length, 0, Constants.MAX_FILE_SIZE_BYTES);
+        if (fileData.length > Constants.MAX_BATCH_FILE_SIZE_BYTES) {
+            throw GroqValidationException.fieldOutOfRange("fileSize", fileData.length, 0, Constants.MAX_BATCH_FILE_SIZE_BYTES);
         }
     }
 
@@ -136,9 +136,24 @@ public final class ValidationUtils {
 
     public static void validateBatchEndpoint(String endpoint) {
         requireNonEmpty(endpoint, "endpoint");
-        if (!"/v1/chat/completions".equals(endpoint)) {
-            throw GroqValidationException.invalidFieldValue("endpoint", endpoint, 
-                "only '/v1/chat/completions' is currently supported");
+        if (!Constants.BATCH_ENDPOINT_CHAT.equals(endpoint)
+            && !Constants.BATCH_ENDPOINT_TRANSCRIPTIONS.equals(endpoint)
+            && !Constants.BATCH_ENDPOINT_TRANSLATIONS.equals(endpoint)) {
+            throw GroqValidationException.invalidFieldValue("endpoint", endpoint,
+                "must be '/v1/chat/completions', '/v1/audio/transcriptions' or '/v1/audio/translations'");
+        }
+    }
+
+    public static void validateBatchJsonl(byte[] jsonlData) {
+        validateFileSize(jsonlData);
+        int lines = 0;
+        for (byte b : jsonlData) {
+            if (b == '\n') {
+                lines++;
+            }
+        }
+        if (lines + 1 > Constants.MAX_BATCH_FILE_LINES) {
+            throw GroqValidationException.fieldOutOfRange("batchFileLines", lines + 1, 0, Constants.MAX_BATCH_FILE_LINES);
         }
     }
 }

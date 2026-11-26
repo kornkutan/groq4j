@@ -25,6 +25,7 @@ public class TranscriptionRequestBuilder {
     private Optional<String> prompt = Optional.empty();
     private Optional<ResponseFormat> responseFormat = Optional.empty();
     private Optional<Double> temperature = Optional.empty();
+    private Optional<String> filename = Optional.empty();
     private Optional<List<TimestampGranularity>> timestampGranularities = Optional.empty();
     
     private TranscriptionRequestBuilder() {
@@ -52,6 +53,10 @@ public class TranscriptionRequestBuilder {
      */
     public static TranscriptionRequestBuilder withFile(String model, byte[] audioData) {
         return create(model).file(audioData);
+    }
+
+    public static TranscriptionRequestBuilder withFile(String model, byte[] audioData, String filename) {
+        return create(model).file(audioData, filename);
     }
     
     /**
@@ -91,6 +96,7 @@ public class TranscriptionRequestBuilder {
     public TranscriptionRequestBuilder file(byte[] audioData, String filename) {
         if (filename != null && !filename.isEmpty()) {
             FileUtils.validateAudioFile(audioData, filename);
+            this.filename = Optional.of(filename);
         }
         return file(audioData);
     }
@@ -270,7 +276,8 @@ public class TranscriptionRequestBuilder {
             prompt,
             responseFormat,
             temperature,
-            timestampGranularities
+            timestampGranularities,
+            filename
         );
     }
 }

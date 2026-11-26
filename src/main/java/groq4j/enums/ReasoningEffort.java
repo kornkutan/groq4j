@@ -1,8 +1,18 @@
 package groq4j.enums;
 
+/**
+ * Reasoning effort level for reasoning models. Model support is not uniform: values outside a
+ * model's supported set are rejected by the API with a 400.
+ */
 public enum ReasoningEffort {
     NONE("none"),
-    DEFAULT("default");
+    DEFAULT("default"),
+    MINIMAL("minimal"),
+    LOW("low"),
+    MEDIUM("medium"),
+    HIGH("high"),
+    XHIGH("xhigh"),
+    MAX("max");
 
     private final String value;
 

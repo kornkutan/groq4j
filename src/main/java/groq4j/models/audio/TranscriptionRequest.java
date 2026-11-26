@@ -14,7 +14,8 @@ public record TranscriptionRequest(
     Optional<String> prompt,
     Optional<ResponseFormat> responseFormat,
     Optional<Double> temperature,
-    Optional<List<TimestampGranularity>> timestampGranularities
+    Optional<List<TimestampGranularity>> timestampGranularities,
+    Optional<String> filename
 ) {
     public TranscriptionRequest {
         if (model == null || model.trim().isEmpty()) {
@@ -69,6 +70,10 @@ public record TranscriptionRequest(
     }
     
     public static TranscriptionRequest withFile(String model, byte[] file) {
+        return withFile(model, file, null);
+    }
+
+    public static TranscriptionRequest withFile(String model, byte[] file, String filename) {
         return new TranscriptionRequest(
             model,
             Optional.of(file),
@@ -77,7 +82,8 @@ public record TranscriptionRequest(
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()
+            Optional.empty(),
+            Optional.ofNullable(filename)
         );
     }
     
@@ -86,6 +92,7 @@ public record TranscriptionRequest(
             model,
             Optional.empty(),
             Optional.of(url),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

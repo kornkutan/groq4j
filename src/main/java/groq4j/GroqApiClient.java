@@ -1,44 +1,46 @@
 package groq4j;
 
-import groq4j.services.ChatService;
 import groq4j.services.AudioService;
-import groq4j.services.ModelsService;
 import groq4j.services.BatchService;
+import groq4j.services.ChatService;
+import groq4j.services.EmbeddingsService;
 import groq4j.services.FilesService;
+import groq4j.services.ModelsService;
+import groq4j.services.RerankingService;
+import groq4j.services.ResponsesService;
 
 /**
- * Main interface for the Groq API client providing unified access to all Groq services.
- * This interface offers both legacy async methods and modern service access.
+ * Entry point for the Groq API. Each accessor returns a service bound to the same API key and
+ * HTTP client.
+ *
+ * {@snippet :
+ * var client = GroqApiClient.create(System.getenv("GROQ_API_KEY"));
+ * var answer = client.chat().simple("openai/gpt-oss-20b", "Hello");
+ * }
  */
 public interface GroqApiClient {
-    
-    /**
-     * Gets the chat service for chat completions and conversations.
-     * @return ChatService instance for chat operations
-     */
+
+    /** Chat completions, blocking and streamed. */
     ChatService chat();
-    
-    /**
-     * Gets the audio service for transcription, translation, and speech synthesis.
-     * @return AudioService instance for audio operations
-     */
+
+    /** The Responses API, blocking and streamed. */
+    ResponsesService responses();
+
+    /** Text embeddings. */
+    EmbeddingsService embeddings();
+
+    /** Document reranking. */
+    RerankingService reranking();
+
+    /** Transcription, translation and speech synthesis. */
     AudioService audio();
-    
-    /**
-     * Gets the models service for listing and retrieving model information.
-     * @return ModelsService instance for model operations
-     */
+
+    /** Model listing and lookup. */
     ModelsService models();
-    
-    /**
-     * Gets the batch service for batch processing operations.
-     * @return BatchService instance for batch operations
-     */
+
+    /** Batch jobs. */
     BatchService batch();
-    
-    /**
-     * Gets the files service for file management operations.
-     * @return FilesService instance for file operations
-     */
+
+    /** File upload and download. */
     FilesService files();
 }

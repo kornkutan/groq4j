@@ -1,431 +1,391 @@
-# Groq4j - Java Client for GroqCloud AI API
+# groq4j
 
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://search.maven.org/artifact/io.github.kornkutan/groq4j)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
 [![javadoc](https://javadoc.io/badge2/io.github.kornkutan/groq4j/javadoc.svg)](https://javadoc.io/doc/io.github.kornkutan/groq4j)
 
-**Groq4j** is a Java library that provides a simple and intuitive interface to interact with the [GroqCloud AI API](https://console.groq.com/).
+Java client for the GroqCloud API. Zero runtime dependencies, built on `java.net.http`.
 
-> **Note**: This is an unofficial library and is not affiliated with Groq Inc. It is intended primarily for server-side applications.
+Unofficial library, not affiliated with Groq Inc. Meant for server-side code.
 
-## ⚡ Features
+## Features
 
-- **Chat Completions** - Advanced conversational AI with multiple models
-- **Tool Calling** - Function calling and tool integration with proper error handling 🆕
-- **Audio Processing** - Transcription, translation, and text-to-speech synthesis  
-- **Model Management** - List, retrieve, and validate available AI models
-- **File Operations** - Upload, manage, and process files (Premium feature)
-- **Batch Processing** - Handle bulk AI operations efficiently (Premium feature)
-- **No External Dependencies** - Pure Java implementation with minimal footprint
-- **Builder Pattern** - Intuitive request building with fluent APIs
-- **Comprehensive Testing** - 50+ JUnit 5 tests with configurable test framework
+- Chat completions, blocking and streamed over server-sent events
+- Responses API, blocking and streamed
+- Text embeddings and document reranking
+- Speech to text (transcription and translation) with word and segment timestamps
+- Text to speech with the Orpheus models
+- Batch jobs and file uploads
+- Tool calling, structured output, reasoning effort, citations over documents
+- JSON parsing and serialization written from scratch, so no Jackson, Gson or OkHttp on your classpath
+- Builder pattern for every request, typed exceptions for every documented error code
+- Offline unit tests that need no API key
 
+## Supported endpoints
 
-## 🚧 Current Limitations
+| Endpoint | Service | Notes |
+|----------|---------|-------|
+| `/openai/v1/chat/completions` | `chat()` | blocking and `stream` |
+| `/openai/v1/responses` | `responses()` | blocking and `stream` |
+| `/openai/v1/embeddings` | `embeddings()` | `nomic-embed-text-v1_5` |
+| `/openai/v1/reranking` | `reranking()` | `qwen3-reranker-4b` |
+| `/openai/v1/audio/transcriptions` | `audio()` | file upload or `url` |
+| `/openai/v1/audio/translations` | `audio()` | file upload or `url` |
+| `/openai/v1/audio/speech` | `audio()` | returns raw audio bytes |
+| `/openai/v1/models` | `models()` | |
+| `/openai/v1/files` | `files()` | upload, list, fetch, delete, content |
+| `/openai/v1/batches` | `batch()` | create, list, fetch, cancel |
 
-- **No Server-Sent Events (SSE) Streaming**: Streaming responses are not yet supported
-- **Server-Side Focus**: Designed primarily for backend/server applications
-- **Premium Features**: Some features require paid GroqCloud plans
+## Install
 
-> **Note**: Fixed tool calling support is available and will be released as **v1.0.1** to Maven Central soon.
-
-## 🚀 Supported APIs
-
-| Service                 | Description                                            | Status                   |
-|-------------------------|--------------------------------------------------------|--------------------------|
-| **Chat Completions**    | Multi-turn conversations, system prompts, tool calling | ✅ Full Support           |
-| **Audio Transcription** | Speech-to-text conversion                              | ✅ Full Support           |
-| **Audio Translation**   | Audio translation to English                           | ✅ Full Support           |
-| **Text-to-Speech**      | Voice synthesis from text                              | ✅ Full Support           |
-| **Models**              | List and retrieve model information                    | ✅ Full Support           |
-| **Files**               | File upload and management                             | ⚠️ Premium Only          |
-| **Batch**               | Bulk processing operations                             | ⚠️ Premium Only          |
-
-## 📦 Installation
-
-### Maven
+Maven:
 
 ```xml
 <dependency>
     <groupId>io.github.kornkutan</groupId>
     <artifactId>groq4j</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
 </dependency>
 ```
 
-### Gradle
+Gradle:
 
 ```gradle
-implementation 'io.github.kornkutan:groq4j:1.0.0'
-
-// For tool calling support (coming soon):
-// implementation 'io.github.kornkutan:groq4j:1.0.1'
+implementation 'io.github.kornkutan:groq4j:1.1.0'
 ```
 
-### Requirements
+Requires Java 21 or newer and a Groq API key from [console.groq.com](https://console.groq.com/).
 
-- **Java 21** or higher
-- **GroqCloud API Key** - Get yours at [console.groq.com](https://console.groq.com/)
-
-## 🔧 Quick Start
+## Quick start
 
 ```java
-import groq4j.services.ChatServiceImpl;
+import groq4j.GroqApiClient;
 
-// Initialize the client
-var chatService = ChatServiceImpl.create("your-api-key-here");
+var client = GroqApiClient.create(System.getenv("GROQ_API_KEY"));
 
-// Simple chat completion
-var response = chatService.simple("llama-3.1-8b-instant", "Hello, how are you?");
-System.out.println(response.choices().getFirst().message().content().orElse(""));
-
-// For tool calling, use the recommended model (v1.0.1+)
-var toolResponse = chatService.simple("openai/gpt-oss-20b", "What's the weather like?");
-```
-
-## 📚 Usage Examples
-
-### 🗣️ Chat Completions
-
-#### Simple Chat
-```java
-import groq4j.services.ChatServiceImpl;
-
-var chatService = ChatServiceImpl.create("your-api-key");
-
-// Basic chat completion
-var response = chatService.simple(
-    "llama-3.1-8b-instant", 
-    "Explain quantum computing in simple terms."
-);
+var response = client.chat().simple("openai/gpt-oss-20b", "Hello, how are you?");
 System.out.println(response.choices().getFirst().message().content().orElse(""));
 ```
 
-#### Advanced Chat with System Prompt
+## Chat completions
+
+### System prompt and sampling
+
 ```java
 import groq4j.builders.ChatCompletionRequestBuilder;
-import groq4j.models.common.Message;
-
-var request = ChatCompletionRequestBuilder.create("llama-3.1-8b-instant")
-    .systemMessage("You are a helpful coding assistant specializing in Java.")
-    .userMessage("Show me how to implement a singleton pattern.")
-    .temperature(0.7)
-    .maxCompletionTokens(500)
-    .build();
-
-var response = chatService.createCompletion(request);
-```
-
-#### Multi-turn Conversation
-```java
-var messages = List.of(
-    Message.system("You are a travel guide."),
-    Message.user("I'm planning a trip to Japan. What should I visit?"),
-    Message.assistant("Japan offers amazing destinations! Consider Tokyo for modern culture..."),
-    Message.user("What about traditional temples?")
-);
-
-var request = ChatCompletionRequestBuilder.create("llama-3.1-8b-instant")
-    .messages(messages)
-    .temperature(0.8)
-    .build();
-```
-
-#### Tool Calling (v1.0.1+)
-```java
-import groq4j.models.common.Tool;
-import groq4j.models.common.Message;
-
-// Define a weather tool
-var weatherTool = Tool.function(
-    "get_weather",
-    "Get current weather information for a specific location",
-    Map.of(
-        "type", "object",
-        "properties", Map.of(
-            "latitude", Map.of("type", "number", "description", "Latitude coordinate"),
-            "longitude", Map.of("type", "number", "description", "Longitude coordinate")
-        ),
-        "required", List.of("latitude", "longitude")
-    )
-);
 
 var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
-    .systemMessage("You are a helpful weather assistant.")
-    .userMessage("What's the weather like in Bangkok?")
-    .addTool(weatherTool)
-    .temperature(0.1)
+    .systemMessage("You write tight technical answers.")
+    .userMessage("What is a Groq LPU?")
+    .temperature(0.3)
+    .maxCompletionTokens(400)
     .build();
 
-var response = chatService.createCompletion(request);
-var message = response.choices().getFirst().message();
+var response = client.chat().createCompletion(request);
+```
 
-if (message.hasToolCalls()) {
-    var toolCalls = message.toolCalls().get();
-    var toolCall = toolCalls.getFirst();
-    
-    // Execute your tool logic here
-    String weatherResult = getWeatherData(13.7563, 100.5018);
-    
-    // Continue conversation with tool result
-    var followUpRequest = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
-        .systemMessage("You are a helpful weather assistant.")
-        .userMessage("What's the weather like in Bangkok?")
-        .addMessage(Message.assistantWithToolCalls(toolCalls))
-        .addMessage(Message.tool(weatherResult, toolCall.id()))
-        .temperature(0.3)
-        .build();
-    
-    var finalResponse = chatService.createCompletion(followUpRequest);
-    System.out.println("Weather: " + finalResponse.choices().getFirst().message().content().orElse(""));
-    // Output: "The current weather in Bangkok is 28°C with partly cloudy skies..."
+### Streaming
+
+```java
+import groq4j.builders.ChatCompletionRequestBuilder;
+
+var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+    .userMessage("Count from 1 to 20.")
+    .build();
+
+try (var chunks = client.chat().streamCompletion(request)) {
+    chunks.forEach(chunk -> System.out.print(chunk.getContent()));
 }
 ```
 
-### 🎵 Audio Processing
+`streamCompletion` keeps an HTTP connection open, so always close the stream. The last chunk carries usage because `stream_options.include_usage` is sent for you.
 
-#### Speech Transcription
+### Reasoning control
+
 ```java
-import groq4j.services.AudioServiceImpl;
-import groq4j.builders.TranscriptionRequestBuilder;
+import groq4j.enums.ReasoningEffort;
 
-var audioService = AudioServiceImpl.create("your-api-key");
-
-// Simple transcription
-byte[] audioData = Files.readAllBytes(Path.of("speech.wav"));
-var transcription = audioService.simpleTranscription(
-    "whisper-large-v3", 
-    audioData, 
-    "speech.wav"
-);
-System.out.println("Transcription: " + transcription.text());
+var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-120b")
+    .userMessage("Prove that the square root of 2 is irrational.")
+    .reasoningEffort(ReasoningEffort.HIGH)
+    .includeReasoning(true)
+    .build();
 ```
 
-#### Advanced Transcription
+`reasoningEffort` accepts `none`, `default`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. Use either `includeReasoning(true)` (raw reasoning text) or `reasoningFormat(...)` (parsed reasoning), not both.
+
+### Tool calling
+
 ```java
-var request = TranscriptionRequestBuilder.withFile("whisper-large-v3", audioData)
-    .language("en")
-    .prompt("This is a technical presentation about AI")
-    .responseFormat(ResponseFormat.VERBOSE_JSON)
-    .temperature(0.2)
+import groq4j.models.common.Message;
+import groq4j.models.common.Tool;
+
+var tool = Tool.function("get_weather", "Current weather for a city", Map.of(
+    "type", "object",
+    "properties", Map.of("city", Map.of("type", "string")),
+    "required", List.of("city")));
+
+var first = client.chat().createCompletion(
+    ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+        .userMessage("What is the weather in Bangkok?")
+        .addTool(tool)
+        .build());
+
+var toolCalls = first.choices().getFirst().message().toolCalls();
+if (!toolCalls.isEmpty()) {
+    var call = toolCalls.getFirst();
+    String result = callWeatherApi();  // your code
+
+    var second = client.chat().createCompletion(
+        ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+            .userMessage("What is the weather in Bangkok?")
+            .addMessage(Message.assistantWithToolCalls(toolCalls))
+            .addMessage(Message.tool(result, call.id()))
+            .build());
+
+    System.out.println(second.choices().getFirst().message().content().orElse(""));
+}
+```
+
+### Structured output
+
+```java
+var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-20b")
+    .userMessage("Describe Bangkok as JSON with fields city and country.")
+    .jsonSchema("city", "City description", Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "city", Map.of("type", "string"),
+            "country", Map.of("type", "string")),
+        "required", List.of("city", "country")))
+    .build();
+```
+
+### Citations over your own documents
+
+```java
+var request = ChatCompletionRequestBuilder.create("openai/gpt-oss-120b")
+    .userMessage("Which chip is deterministic? Cite the document id.")
+    .addTextDocument("doc-1", "Groq LPUs are deterministic.")
+    .addTextDocument("doc-2", "GPUs are throughput oriented.")
     .build();
 
-var response = audioService.createTranscription(request);
+var response = client.chat().createCompletion(request);
+response.choices().getFirst().message().annotations().forEach(annotation ->
+    annotation.documentCitation().ifPresent(citation ->
+        System.out.println(citation.documentId())));
 ```
 
-#### Audio Translation
+Documents are either plain text (`addTextDocument`) or JSON (`addJsonDocument`), matched by `id` in the returned annotations.
+
+## Responses API
+
+The Responses API is the OpenAI compatible alternative to chat completions. Groq does not keep conversation state yet, so send the full input each call.
+
 ```java
-// Translate foreign language audio to English
-var translation = audioService.simpleTranslation(
-    "whisper-large-v3",
-    foreignAudioData,
-    "foreign-speech.wav"
-);
-System.out.println("English translation: " + translation.text());
+import groq4j.builders.ResponseRequestBuilder;
+
+var request = ResponseRequestBuilder.create("openai/gpt-oss-20b")
+    .input("Explain prompt caching in two sentences.")
+    .instructions("Answer in plain English.")
+    .maxOutputTokens(200)
+    .build();
+
+var response = client.responses().createResponse(request);
+System.out.println(response.getOutputText());
+System.out.println(response.usage().map(u -> u.totalTokens()).orElse(0));
 ```
 
-#### Text-to-Speech Synthesis
+Streaming:
+
+```java
+try (var events = client.responses().streamResponse(request)) {
+    events.filter(e -> e.isTextDelta()).forEach(e -> System.out.print(e.delta()));
+}
+```
+
+`ResponseObject.raw()` holds the full decoded body for any field this library does not model.
+
+## Embeddings and reranking
+
+```java
+import groq4j.builders.EmbeddingRequestBuilder;
+import groq4j.builders.RerankRequestBuilder;
+
+var embeddings = client.embeddings().createEmbeddings(
+    EmbeddingRequestBuilder.create()
+        .input(List.of("first passage", "second passage"))
+        .build());
+
+double[] vector = embeddings.getFirst().vector().orElseThrow();
+
+var reranked = client.reranking().rerank(
+    RerankRequestBuilder.create()
+        .query("what is an LPU?")
+        .documents("LPUs are deterministic chips.", "A recipe for bread.")
+        .build());
+
+reranked.results().forEach(r -> System.out.println(r.score() + " " + r.document()));
+```
+
+Use `base64Encoding()` on the embedding builder to receive vectors as base64 strings instead of float arrays.
+
+## Audio
+
+### Transcription
+
+```java
+import groq4j.builders.TranscriptionRequestBuilder;
+import groq4j.enums.ResponseFormat;
+import groq4j.enums.TimestampGranularity;
+
+byte[] audio = Files.readAllBytes(Path.of("speech.wav"));
+
+var plain = client.audio().simpleTranscription("whisper-large-v3", audio, "speech.wav");
+
+var detailed = client.audio().createTranscription(
+    TranscriptionRequestBuilder.withFile("whisper-large-v3", audio, "speech.wav")
+        .language("en")
+        .responseFormat(ResponseFormat.VERBOSE_JSON)
+        .timestampGranularities(List.of(TimestampGranularity.WORD, TimestampGranularity.SEGMENT))
+        .build());
+
+detailed.segments().forEach(s -> System.out.println(s.start() + "-" + s.end() + " " + s.text()));
+```
+
+Passing the filename keeps the format validation accurate and sends the right content type. A hosted file works too: `TranscriptionRequestBuilder.withUrl("whisper-large-v3", url)`.
+
+### Translation
+
+```java
+var translation = client.audio().simpleTranslation("whisper-large-v3", foreignAudio, "speech.mp3");
+System.out.println(translation.text());
+```
+
+### Text to speech
+
 ```java
 import groq4j.builders.SpeechRequestBuilder;
 import groq4j.enums.AudioFormat;
+import groq4j.enums.TtsVoice;
 
-var speechRequest = SpeechRequestBuilder.create("playai-tts")
-    .input("Hello, this is a test of text-to-speech synthesis.")
-    .voice("Fritz-PlayAI")
-    .responseFormat(AudioFormat.MP3)
-    .speed(1.0)
+var request = SpeechRequestBuilder.create()
+    .input("[cheerful] Groq serves models fast.")
+    .voice(TtsVoice.TROY)
+    .responseFormat(AudioFormat.WAV)
     .build();
 
-byte[] audioData = audioService.createSpeech(speechRequest);
-Files.write(Path.of("output.mp3"), audioData);
+byte[] wav = client.audio().createSpeech(request);
+Files.write(Path.of("speech.wav"), wav);
 ```
 
-### 🤖 Model Management
+Groq hosts `canopylabs/orpheus-v1-english` and `canopylabs/orpheus-arabic-saudi`. Both return `wav`, accept at most 200 characters of input, and the English model understands vocal direction tags such as `[cheerful]` or `[whispering]`.
+
+## Files and batches
 
 ```java
-import groq4j.services.ModelsServiceImpl;
-
-var modelsService = ModelsServiceImpl.create("your-api-key");
-
-// List all available models
-var models = modelsService.listModels();
-System.out.println("Available models: " + models.getModelCount());
-
-// Get chat models only
-var chatModels = models.getActiveChatModels();
-chatModels.forEach(model -> 
-    System.out.println(model.id() + " - " + model.contextWindow() + " tokens")
-);
-
-// Retrieve specific model details
-var model = modelsService.retrieveModel("llama-3.1-8b-instant");
-System.out.println("Model: " + model.displayName());
-System.out.println("Context window: " + model.contextWindow());
-System.out.println("Owner: " + model.ownedBy());
-```
-
-### 📁 File Operations (Premium)
-
-```java
-import groq4j.services.FilesServiceImpl;
-import groq4j.builders.FileUploadRequestBuilder;
 import groq4j.enums.FilePurpose;
 
-var filesService = FilesServiceImpl.create("your-api-key");
+var uploaded = client.files().uploadFile(jsonlBytes, "requests.jsonl", FilePurpose.BATCH);
 
-// Upload file for batch processing
-byte[] fileData = createBatchFile(); // Your JSONL batch data
-var request = FileUploadRequestBuilder.createBatchFile(fileData, "batch-requests.jsonl")
-    .build();
-
-var uploadedFile = filesService.uploadFile(request);
-System.out.println("Uploaded file ID: " + uploadedFile.id());
-
-// List all files
-var filesList = filesService.listFiles();
-System.out.println("Total files: " + filesList.getTotalCount());
-
-// Download file content
-byte[] content = filesService.downloadFileContent(uploadedFile.id());
-```
-
-### ⚡ Batch Processing (Premium)
-
-```java
-import groq4j.services.BatchServiceImpl;
 import groq4j.builders.BatchRequestBuilder;
 
-var batchService = BatchServiceImpl.create("your-api-key");
+var batch = client.batch().createBatch(
+    BatchRequestBuilder.create(uploaded.id()).in24Hours().build());
+var status = client.batch().retrieveBatch(batch.id());
+client.batch().cancelBatch(batch.id());
 
-// Create batch request
-var batchRequest = BatchRequestBuilder.create("file-batch-123")
-    .completionWindow("24h")
-    .metadata("project", "ai-analysis")
-    .description("Batch analysis of customer feedback")
-    .build();
-
-var batch = batchService.createBatch(batchRequest);
-System.out.println("Batch created: " + batch.id());
-
-// Monitor batch status
-var batches = batchService.listBatches();
-var inProgress = batches.getInProgressBatches();
-var completed = batches.getCompletedBatches();
-
-System.out.println("In progress: " + inProgress.size());
-System.out.println("Completed: " + completed.size());
+var files = client.files().listFiles();
+byte[] content = client.files().downloadFileContent(uploaded.id());
+byte[] output = client.files().downloadFileContent(client.batch().retrieveBatch(batch.id()).outputFileId().orElseThrow());
 ```
 
-## 🔧 Configuration
+Limits: 200 MB and 50,000 requests per batch file, 100 MB per audio file. Batch endpoint accepts `/v1/chat/completions`, `/v1/audio/transcriptions` and `/v1/audio/translations`.
 
-### Environment Variables
-```bash
-export GROQ_API_KEY="your-api-key-here"
-```
+## Models
 
-### Programmatic Configuration
 ```java
-// Pass API key directly to service constructors
-var chatService = ChatServiceImpl.create("gsk_your_api_key_here");
+var models = client.models().listModels();
+models.data().forEach(m -> System.out.println(m.id() + " " + m.contextWindow()));
+
+var model = client.models().retrieveModel("openai/gpt-oss-20b");
 ```
 
-## 🧪 Testing
+## Errors
 
-Groq4J includes a comprehensive test suite with configurable settings:
+Every failure throws a subclass of `GroqApiException` with status code, error type, error code and request id.
+
+| Status | Exception |
+|--------|-----------|
+| 400 | `GroqBadRequestException` |
+| 401 | `GroqAuthenticationException` |
+| 403 | `GroqForbiddenException` |
+| 404 | `GroqNotFoundException` |
+| 413 | `GroqRequestTooLargeException` |
+| 422 | `GroqUnprocessableEntityException` |
+| 424 | `GroqFailedDependencyException` |
+| 429 | `GroqRateLimitException` |
+| 498, 499 | `GroqApiException` |
+| 5xx | `GroqServerException` |
+
+Local problems throw `GroqValidationException` (bad input), `GroqSerializationException` (bad JSON) or `GroqNetworkException` (connection failure).
+
+```java
+try {
+    client.chat().simple("openai/gpt-oss-20b", "hello");
+} catch (groq4j.exceptions.GroqRateLimitException e) {
+    System.out.println("retry after " + e.getRetryAfterSeconds() + "s, request " + e.getRequestId());
+}
+```
+
+## Configuration
+
+The client owns one `HttpClient` per instance and reuses it. Pass your own when you need a proxy, custom executor or timeouts:
+
+```java
+var httpClient = groq4j.utils.HttpUtils.createHttpClient();
+var client = GroqApiClient.create(httpClient, System.getenv("GROQ_API_KEY"));
+```
+
+Point the library at a proxy or a mock server with `-Dgroq4j.baseUrl=http://localhost:8080/openai/v1`.
+
+## Testing
+
+Offline tests run with no API key and cover the JSON parser, SSE reader, request building, response parsing and HTTP error mapping:
 
 ```bash
-# Run all tests
 mvn test
-
-# Run specific service tests
-mvn test -Dtest=ChatServiceTest
-mvn test -Dtest=AudioServiceTest
-
-# Skip premium feature tests (for free accounts)
-# Edit src/test/resources/application.properties:
-# test.batch.enabled=false
-# test.files.enabled=false
 ```
 
-**Tool Calling Test Features (v1.0.1+):**
-- Multi-step conversation flows (city coordinates → weather data)
-- Error handling for unknown cities and invalid coordinates
-- Real API integration with Open-Meteo weather service
-- Supports `openai/gpt-oss-20b` model for reliable tool calling
+The live API tests are tagged `integration` and are skipped by default. To run them, set `GROQ_API_KEY` and enable the profile:
 
-## 🤝 Contributing
-
-We welcome contributions! Here's how you can help:
-
-### 🐛 Issues & Bug Reports
-- Found a bug? [Open an issue](https://github.com/kornkutan/groq4j/issues)
-- Include steps to reproduce, expected vs actual behavior
-- Provide code samples when possible
-
-### ✨ Feature Requests
-- Have an idea? [Submit a feature request](https://github.com/kornkutan/groq4j/issues)
-- Describe the use case and expected behavior
-- Check existing issues to avoid duplicates
-
-### 🔧 Pull Requests
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes and add tests
-4. Ensure all tests pass (`mvn test`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-### 📋 Development Guidelines
-- Follow existing code style and patterns
-- Add comprehensive tests for new features
-- Update documentation for public APIs
-- Use the existing builder pattern for new request types
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
+```bash
+mvn test -Pintegration
 ```
-MIT License
+
+## Build
+
+```bash
+mvn compile
+mvn test
+mvn package
+```
+
+## Contributing
+
+Issues and pull requests go to [github.com/kornkutan/groq4j](https://github.com/kornkutan/groq4j).
+
+- Keep the library free of runtime dependencies.
+- Add an offline test for anything that parses or serializes.
+- Match the existing builder pattern for new request types.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 Copyright (c) 2024 Korn Kutan
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+## Disclaimer
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## 👨‍💻 Developer
-
-**Korn Kutan**  
-Email: [korn@kutan.me](mailto:korn@kutan.me)  
-GitHub: [@kornkutan](https://github.com/kornkutan)
-
-## 🙏 Acknowledgments
-
-- [GroqCloud](https://groq.com/) for providing the amazing AI infrastructure
-- The Java community for excellent tooling and libraries
-
-## ⚠️ Disclaimer
-
-This is an unofficial library and is not affiliated with Groq Inc. Use at your own discretion. Always refer to the official [GroqCloud API documentation](https://console.groq.com/docs) for the most up-to-date API specifications.
-
----
-
-**Made with ❤️ for the Java community**
+Unofficial library, not affiliated with Groq Inc. The official documentation at [console.groq.com/docs](https://console.groq.com/docs) is the source of truth for API behaviour.
