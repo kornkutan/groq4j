@@ -21,6 +21,15 @@ jobs:
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
-      - run: mvn -B -ntp deploy -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/kornkutan/groq4j
+      - run: mvn -B -ntp deploy -DaltDeploymentRepository=github::https://maven.pkg.github.com/kornkutan/groq4j
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: check the artifact is downloadable
+        run: |
+          VERSION=$(mvn -B -ntp help:evaluate -Dexpression=project.version -q -DforceStdout)
+          URL="https://maven.pkg.github.com/kornkutan/groq4j/io/github/kornkutan/groq4j/$VERSION/groq4j-$VERSION.jar"
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $GITHUB_TOKEN" "$URL")
+          echo "$URL -> $CODE"
+          test "$CODE" = "200"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
