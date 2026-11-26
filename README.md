@@ -1,9 +1,8 @@
 # groq4j
 
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://search.maven.org/artifact/io.github.kornkutan/groq4j)
+[![Maven Central](https://img.shields.io/badge/Maven%20Central-pending-lightgrey.svg)](#install)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
-[![javadoc](https://javadoc.io/badge2/io.github.kornkutan/groq4j/javadoc.svg)](https://javadoc.io/doc/io.github.kornkutan/groq4j)
 
 Java client for the GroqCloud API. Zero runtime dependencies, built on `java.net.http`.
 
@@ -39,6 +38,17 @@ Unofficial library, not affiliated with Groq Inc. Meant for server-side code.
 
 ## Install
 
+Not published to Maven Central yet. Version 1.1.0 is tagged and pushed, publication is pending, so the coordinates below do not resolve from Central yet. Build it locally until then.
+
+Install from source, pinned to the release tag:
+
+```bash
+git clone --branch v1.1.0 https://github.com/kornkutan/groq4j.git
+cd groq4j && mvn install -DskipTests
+```
+
+That puts `io.github.kornkutan:groq4j:1.1.0` in your local repository, so these work in your project:
+
 Maven:
 
 ```xml
@@ -55,7 +65,11 @@ Gradle:
 implementation 'io.github.kornkutan:groq4j:1.1.0'
 ```
 
-Requires Java 21 or newer and a Groq API key from [console.groq.com](https://console.groq.com/).
+Or build the jar and add it by hand:
+
+```bash
+mvn package -DskipTests   # target/groq4j-1.1.0.jar
+```
 
 ## Quick start
 
