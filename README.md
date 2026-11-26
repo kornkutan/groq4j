@@ -23,7 +23,7 @@ Java 21 or newer.
 implementation 'io.github.kornkutan:groq4j:1.1.0'
 ```
 
-If that version is not on Central yet, the same jar is attached to the [releases page](https://github.com/kornkutan/groq4j/releases). It has no transitive dependencies, so the jar alone is enough.
+No transitive dependencies, so nothing else lands on your classpath.
 
 ## Endpoints
 
