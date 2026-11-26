@@ -1,6 +1,6 @@
 # groq4j
 
-[![Maven Central](https://img.shields.io/badge/Maven%20Central-pending-lightgrey.svg)](#install)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://search.maven.org/artifact/io.github.kornkutan/groq4j)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
 
@@ -38,22 +38,36 @@ Unofficial library, not affiliated with Groq Inc. Meant for server-side code.
 
 ## Install
 
-Not on Maven Central yet. Publication is pending, so there is no dependency snippet to copy here and `io.github.kornkutan:groq4j` will not resolve from Central until the release ships. Build it from source:
+The latest release on Maven Central is 1.0.1.
+
+Maven:
+
+```xml
+<dependency>
+    <groupId>io.github.kornkutan</groupId>
+    <artifactId>groq4j</artifactId>
+    <version>1.0.1</version>
+</dependency>
+```
+
+Gradle:
+
+```gradle
+implementation 'io.github.kornkutan:groq4j:1.0.1'
+```
+
+Version 1.1.0, what this README documents, is tagged and pushed but still pending publication to Central. To use it now, build from source:
 
 ```bash
 git clone https://github.com/kornkutan/groq4j.git
 cd groq4j && mvn install -DskipTests
 ```
 
-That installs the current version into your local repository, and the pom coordinates in `pom.xml` are what you depend on locally. To use the jar without a local install:
+Or build the jar and add it by hand:
 
 ```bash
-mvn package -DskipTests
+mvn package -DskipTests   # target/groq4j-1.1.0.jar
 ```
-
-The jar lands in `target/`. Add it to your classpath directly.
-
-Once the Central release is live this section will carry the Maven and Gradle lines.
 
 ## Quick start
 
