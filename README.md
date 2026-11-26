@@ -1,7 +1,7 @@
 # groq4j
 
 [![build](https://github.com/kornkutan/groq4j/actions/workflows/build.yml/badge.svg)](https://github.com/kornkutan/groq4j/actions/workflows/build.yml)
-[![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://central.sonatype.com/artifact/io.github.kornkutan/groq4j)
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.kornkutan/groq4j.svg)](https://repo1.maven.org/maven2/io/github/kornkutan/groq4j/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
 
