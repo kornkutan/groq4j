@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Java 21+](https://img.shields.io/badge/Java-21%2B-blue.svg)](https://openjdk.java.net/projects/jdk/21/)
 
-Java client for the GroqCloud API. Zero runtime dependencies, built on `java.net.http`. Unofficial, not affiliated with Groq Inc.
+Java library for the Groq API (GroqCloud): chat completions, responses, embeddings, reranking, speech, transcription, files and batch jobs. One zero-dependency jar on top of `java.net.http`. Unofficial, not affiliated with Groq Inc.
 
 ## Install
 
