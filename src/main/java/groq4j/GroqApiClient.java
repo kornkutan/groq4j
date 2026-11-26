@@ -14,7 +14,7 @@ import groq4j.services.ResponsesService;
  * HTTP client.
  *
  * {@snippet :
- * var client = GroqApiClient.create(System.getenv("GROQ_API_KEY"));
+ * var client = GroqApiClientImpl.create(System.getenv("GROQ_API_KEY"));
  * var answer = client.chat().simple("openai/gpt-oss-20b", "Hello");
  * }
  */
