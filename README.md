@@ -405,8 +405,6 @@ Issues and pull requests go to [github.com/kornkutan/groq4j](https://github.com/
 
 MIT. See [LICENSE](LICENSE).
 
-Copyright (c) 2024 Korn Kutan
-
 ## Disclaimer
 
 Unofficial library, not affiliated with Groq Inc. The official documentation at [console.groq.com/docs](https://console.groq.com/docs) is the source of truth for API behaviour.
